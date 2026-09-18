@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FULUDA 店铺管理系统 V5.0 云端全功能版</title>
+<title>FULUDA 店铺管理系统 V5.1 云端版</title>
 <!-- 引入 Supabase JS SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -51,7 +51,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 <div id="receiptPrintArea" style="display:none;"></div>
 
 <header>
-  <div><span class="logo">FULUDA</span><span class="sub" data-i18n="subtitle">E-BIKE SHOP MANAGEMENT V5.0</span></div>
+  <div><span class="logo">FULUDA</span><span class="sub" data-i18n="subtitle">E-BIKE SHOP MANAGEMENT V5.1</span></div>
   <div class="headright">
     <div class="role-badge">
       <span id="roleDisplay">当前身份: 普通员工 👤</span>
@@ -262,7 +262,8 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
     <div><label>Project URL</label><input id="spUrl" placeholder="https://xxx.supabase.co"></div>
     <div><label>Anon / Public Key</label><input id="spKey" placeholder="eyJhbGciOiJIUzI1NiI..."></div>
   </div>
-  <button class="btn green" onclick="saveSupabaseConfig()">保存云端配置并链接</button>
+  <button class="btn green" onclick="saveSupabaseConfig()">保存云端配置并连接</button>
+  <div id="supabaseStatus" class="small" style="margin-top:8px;color:#666;">云端状态：尚未连接</div>
   <hr style="margin:20px 0;border:0;border-top:1px solid #eee">
   <h3 data-i18n="backupTitle">本地数据备份管理</h3>
   <div class="actions">
@@ -385,26 +386,159 @@ let db=JSON.parse(localStorage.getItem(KEY))||{sales:[],services:[],stock:[],cus
 let lang=localStorage.getItem("FULUDA_LANG")||"zh";
 let supabaseClient = null;
 
-function saveSupabaseConfig() {
+function setSupabaseStatus(message, ok=null){
+  const el=document.getElementById("supabaseStatus");
+  if(!el)return;
+  el.textContent="云端状态："+message;
+  el.style.color = ok===true ? "#16834a" : ok===false ? "#b42318" : "#666";
+}
+
+const CLOUD_MAP = {
+  sales: {
+    toRow:x=>({id:x.id,date:x.date,customer:x.customer,item:x.item,stock_id:x.stockId,qty:x.qty,vin:x.vin,amount:x.amount,pay:x.pay,paid:x.paid,installments_count:x.installmentsCount,installment_amount:x.installmentAmount}),
+    fromRow:x=>({...x,stockId:x.stock_id,installmentsCount:x.installments_count,installmentAmount:x.installment_amount})
+  },
+  services: {
+    toRow:x=>({id:x.id,date:x.date,customer:x.customer,phone:x.phone,model:x.model,vin:x.vin,parts:x.parts,parts_items:x.partsItems||[],labor:x.labor,total:x.total,fault:x.fault,status:x.status,paid:x.paid}),
+    fromRow:x=>({...x,partsItems:x.parts_items||[]})
+  },
+  stock: {
+    toRow:x=>({id:x.id,code:x.code,name:x.name,qty:x.qty,min:x.min,cost:x.cost,sell:x.sell}),
+    fromRow:x=>({...x})
+  },
+  customers: {
+    toRow:x=>({id:x.id,name:x.name,phone:x.phone,vehicle:x.vehicle}),
+    fromRow:x=>({...x})
+  },
+  vehicles: {
+    toRow:x=>({id:x.id,model:x.model,vin:x.vin,battery:x.battery,motor:x.motor,cost:x.cost,sell:x.sell,status:x.status}),
+    fromRow:x=>({...x})
+  },
+  rents: {
+    toRow:x=>({id:x.id,vehicle:x.vehicle,customer:x.customer,start:x.start,end:x.end,rent:x.rent,deposit:x.deposit,status:x.status}),
+    fromRow:x=>({...x})
+  },
+  expenses: {
+    toRow:x=>({id:x.id,date:x.date,category:x.category,description:x.description,amount:x.amount,pay:x.pay}),
+    fromRow:x=>({...x})
+  },
+  stockMoves: {
+    toRow:x=>({id:x.id,date:x.date,stock_id:x.stockId,code:x.code,name:x.name,qty:x.qty,type:x.type,ref:x.ref,unit_cost:x.unitCost,before_qty:x.beforeQty,after_qty:x.afterQty}),
+    fromRow:x=>({...x,stockId:x.stock_id,unitCost:x.unit_cost,beforeQty:x.before_qty,afterQty:x.after_qty})
+  },
+  payments: {
+    toRow:x=>({id:x.id,date:x.date,kind:x.kind,ref_id:x.refId,amount:x.amount,method:x.method,note:x.note}),
+    fromRow:x=>({...x,refId:x.ref_id})
+  }
+};
+
+function cloudHasLocalData(){
+  return Object.values(db).some(v=>Array.isArray(v) && v.length>0);
+}
+
+async function syncTableToCloud(name){
+  if(!supabaseClient)return;
+  const mapper=CLOUD_MAP[name];
+  if(!mapper)return;
+  const rows=(db[name]||[]).map(mapper.toRow);
+  if(!rows.length)return;
+  const {error}=await supabaseClient.from(name==="stockMoves"?"stock_moves":name).upsert(rows,{onConflict:"id"});
+  if(error)throw error;
+}
+
+async function syncAllToCloud(){
+  if(!supabaseClient)return;
+  setSupabaseStatus("正在同步…");
+  for(const name of Object.keys(CLOUD_MAP)) await syncTableToCloud(name);
+  setSupabaseStatus("已连接，数据已同步",true);
+}
+
+async function loadCloudData(){
+  if(!supabaseClient)return false;
+  const names=Object.keys(CLOUD_MAP);
+  const results=await Promise.all(names.map(async name=>{
+    const table=name==="stockMoves"?"stock_moves":name;
+    const {data,error}=await supabaseClient.from(table).select("*");
+    if(error)throw error;
+    return [name,data||[]];
+  }));
+  let total=0;
+  for(const [,rows] of results)total+=rows.length;
+
+  if(total===0){
+    if(cloudHasLocalData()){
+      setSupabaseStatus("云端为空，正在上传现有本地数据…");
+      await syncAllToCloud();
+      return true;
+    }
+    renderAll();
+    setSupabaseStatus("已连接，云端暂无数据",true);
+    return true;
+  }
+
+  results.forEach(([name,rows])=>{
+    db[name]=rows.map(CLOUD_MAP[name].fromRow);
+  });
+  localStorage.setItem(KEY,JSON.stringify(db));
+  renderAll();
+  setSupabaseStatus("已连接，已加载云端数据",true);
+  return true;
+}
+
+let cloudSyncTimer=null;
+function scheduleCloudSync(){
+  if(!supabaseClient)return;
+  clearTimeout(cloudSyncTimer);
+  cloudSyncTimer=setTimeout(async()=>{
+    try{await syncAllToCloud();}
+    catch(e){
+      console.error("Supabase 同步失败",e);
+      setSupabaseStatus("同步失败："+(e.message||e),false);
+    }
+  },500);
+}
+
+async function saveSupabaseConfig() {
   let u = v("spUrl").trim(), k = v("spKey").trim();
   if(!u || !k) return alert("请填写正确的 URL 和 Key！");
   localStorage.setItem("SUPABASE_URL", u);
   localStorage.setItem("SUPABASE_KEY", k);
-  alert("已保存！正在尝试链接 Supabase 云端...");
   initSupabase();
+  try{
+    await loadCloudData();
+  }catch(e){
+    console.error("Supabase 连接/读取失败",e);
+    setSupabaseStatus("连接失败："+(e.message||e),false);
+    alert("Supabase 连接失败：\n"+(e.message||e));
+    return;
+  }
+  alert("Supabase 已连接，云端数据已准备就绪！");
 }
 
-function initSupabase() {
+async function initSupabase() {
   let u = localStorage.getItem("SUPABASE_URL"), k = localStorage.getItem("SUPABASE_KEY");
   if(u && k && window.supabase) {
     try {
       supabaseClient = window.supabase.createClient(u, k);
-      document.getElementById("spUrl").value = u;
-      document.getElementById("spKey").value = k;
-    } catch(e) { console.error("Supabase 初始化失败", e); }
+      const urlEl=document.getElementById("spUrl"), keyEl=document.getElementById("spKey");
+      if(urlEl)urlEl.value = u;
+      if(keyEl)keyEl.value = k;
+      setSupabaseStatus("客户端已初始化");
+      return true;
+    } catch(e) {
+      supabaseClient=null;
+      console.error("Supabase 初始化失败", e);
+      setSupabaseStatus("初始化失败："+(e.message||e),false);
+    }
   }
+  return false;
 }
 
+function save(){
+  localStorage.setItem(KEY,JSON.stringify(db));
+  renderAll();
+  scheduleCloudSync();
+}
 const T={
 zh:{subtitle:"E-BIKE SHOP MANAGEMENT V5.0",home:"首页 / Početna",sales:"销售 / Prodaja",promotions:"活动 / Akcije",service:"维修 / Servis",stock:"库存 / Zalihe",customers:"客户 / Kupci",vehicles:"车辆 / Vozila",rent:"出租 / Iznajmljivanje",expenses:"支出 / Troškovi",reports:"报表 / Izveštaji",data:"数据 / Podaci",dashboard:"首页 / Dashboard",todayIncome:"今日已收 / Danas naplaćeno",monthIncome:"本月已收 / Ovaj mesec",vehiclesInStock:"库存车辆 / Vozila na stanju",pendingService:"待维修 / Servis otvoren",stockWarnings:"库存预警 / Niska zaliha",recentService:"最近维修 / Poslednji servisi",stockAlert:"库存预警 / Upozorenje zaliha",salesTitle:"销售 / Prodaja",promotionsTitle:"销售活动 / Akcije i Promocije",newSale:"新增销售 / Nova prodaja",serviceTitle:"维修 / Servis",newService:"新增维修 / Novi servis",stockTitle:"库存 / Zalihe",newStock:"添加库存 / Nova zaliha",customersTitle:"客户 / Kupci",newCustomer:"新增客户 / Novi kupac",vehiclesTitle:"车辆档案 / Vozila",newVehicle:"新增车辆 / Novo vozilo",rentTitle:"出租 / Iznajmljivanje",newRent:"新出租 / Novi najam",expensesTitle:"支出 / Troškovi",newExpense:"新增支出 / Novi trošak",reportsTitle:"报表 / Izveštaji",dataTitle:"数据与设置 / Podaci i podešavanja",date:"日期 / Datum",customer:"客户 / Kupac",item:"项目 / Stavka",amount:"金额 / Iznos",payment:"付款 / Plaćanje",status:"状态 / Status",actions:"操作 / Radnje",vehicle:"车辆 / Vozilo",fault:"故障 / Kvar",total:"总额 / Ukupno",code:"编号 / Šifra",part:"配件 / Deo",quantity:"库存 / Količina",minimum:"最低 / Minimum",cost:"采购价 / Nabavna cena",sellPrice:"售价 / Prodajna cena",name:"姓名 / Ime",phone:"电话 / Telefon",serviceCount:"维修次数 / Servisi",spent:"累计消费 / Potrošnja",model:"车型 / Model",battery:"电池容量 / Baterija",motor:"电机功率 / Motor",start:"开始 / Početak",end:"结束 / Kraj",rentFee:"租金 / Najam",deposit:"押金 / Depozit",salesIncome:"销售实收 / Prodaja",serviceIncome:"维修实收 / Servis",rentIncome:"出租收入 / Najam",expenseTotal:"支出 / Troškovi",totalIncome:"总收入 / Ukupno",grossProfit:"毛利润（精算） / Bruto dobit (sa troškovima)",monthlyReport:"月度经营报表 / Mesečni izveštaj",netCashflow:"当月净收支 / Neto priliv",tradein:"以旧换新 / Zamena starog za novo",newPrice:"新车售价 RSD / Cena novog RSD",oldValue:"旧车估价 RSD / Procena starog RSD",customerPays:"客户应付 / Kupac plaća",backupTitle:"长期使用数据管理 / Upravljanje podacima",backupText:"当前版本数据保存在此浏览器本机。正式上线前建议定期导出备份。",export:"导出备份 JSON",import:"导入备份 JSON",clear:"清空全部数据",v3notice:"现已支持【销售/维修与库存联动扣减】：售出车辆或消耗配件将自动同步扣减库存！",searchSales:"搜索客户 / 车型 / 车架号",searchService:"搜索客户 / 电话 / 车架号",searchStock:"搜索配件",searchCustomer:"搜索姓名 / 电话",searchVehicle:"搜索车型 / 车架号",searchExpense:"搜索类别 / 说明",noData:"暂无数据 / Nema podataka",edit:"编辑 / Izmeni",delete:"删除 / Obriši",print:"打印 / Štampa",adjust:"调整库存 / Promena zaliha",save:"保存 / Sačuvaj",cancel:"取消 / Otkaži",confirmDelete:"确定删除这条记录吗？",paid:"已收款 / Plaćeno",unpaid:"未付款 / Nije plaćeno",installment:"分期中 / Na rate",normal:"正常 / Normalno",low:"需要补货 / Dopuniti",returned:"已归还 / Vraćeno",using:"使用中 / U upotrebi",cash:"现金 / Gotovina",bank:"银行转账 / Bankovni transfer",card:"银行卡 / Kartica",notpaid:"未付款 / Nije plaćeno",pending:"待维修 / Čeka servis",repairing:"维修中 / U servisu",done:"已完成 / Završeno",picked:"已取车 / Preuzeto",stockStatus:"库存 / Na stanju",sold:"已售 / Prodato",repairStatus:"维修 / Servis",rentStatus:"出租 / Iznajmljeno",inStock:"库存",expenseCategory:"支出类别 / Vrsta troška",description:"说明 / Opis",vehicleCost:"车辆成本 RSD",salePrice:"销售价格 RSD",labor:"人工费 RSD / Rad RSD",parts:"配件费 RSD / Delovi RSD",faultDesc:"故障描述 / Opis kvara",customerName:"客户姓名",tradeNew:"新车售价 RSD",tradeOld:"旧车估价 RSD",invalidBackup:"备份文件格式不正确",backupOK:"备份恢复成功",clearWarn:"警告：将删除本浏览器中的全部 FULUDA 数据。确定继续？"}
 };
@@ -452,7 +586,14 @@ function restoreSaleStock(sale,ref){
   if(item)addStockMove(item,Number(sale.qty||1),"return",ref||"销售单回滚");
 }
 
-function del(type,id){
+async function deleteCloudRow(type,id){
+  if(!supabaseClient)return;
+  const table=type==="stockMoves"?"stock_moves":type;
+  const {error}=await supabaseClient.from(table).delete().eq("id",id);
+  if(error)throw error;
+}
+
+async function del(type,id){
   if (!isAdmin()) return alert("普通员工无权删除记录！");
   if(confirm(t("confirmDelete"))){
     if (type === 'sales') {
@@ -464,6 +605,14 @@ function del(type,id){
     }
     db[type]=db[type].filter(x=>x.id!==id);
     save();
+    try{
+      await deleteCloudRow(type,id);
+      setSupabaseStatus("已连接，数据已同步",true);
+    }catch(e){
+      console.error("删除云端记录失败",e);
+      setSupabaseStatus("本地已删除，但云端删除失败："+(e.message||e),false);
+      alert("本地已删除，但云端删除失败：\n"+(e.message||e));
+    }
   }
 }
 function option(vv,label,selected){return `<option value="${esc(vv)}" ${selected===vv?"selected":""}>${esc(label)}</option>`}
@@ -1202,9 +1351,26 @@ function importData(e){
   if (!isAdmin()) return alert("仅管理员可导入数据库！");
   let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{let x=JSON.parse(r.result);if(!x.sales||!x.services||!x.stock)throw 0;db=x;save();alert(t("backupOK"))}catch{alert(t("invalidBackup"))}};r.readAsText(f)
 }
-function clearAll(){
+async function clearAll(){
   if (!isAdmin()) return alert("仅管理员可清空数据库！");
-  if(confirm(t("clearWarn"))){db={sales:[],services:[],stock:[],customers:[],vehicles:[],rents:[],expenses:[],stockMoves:[],payments:[]};save()}
+  if(confirm(t("clearWarn"))){
+    db={sales:[],services:[],stock:[],customers:[],vehicles:[],rents:[],expenses:[],stockMoves:[],payments:[]};
+    save();
+    if(supabaseClient){
+      try{
+        for(const name of Object.keys(CLOUD_MAP)){
+          const table=name==="stockMoves"?"stock_moves":name;
+          const {error}=await supabaseClient.from(table).delete().not("id","is",null);
+          if(error)throw error;
+        }
+        setSupabaseStatus("已连接，云端数据已清空",true);
+      }catch(e){
+        console.error("清空云端失败",e);
+        setSupabaseStatus("本地已清空，但云端清空失败："+(e.message||e),false);
+        alert("本地已清空，但云端清空失败：\n"+(e.message||e));
+      }
+    }
+  }
 }
 
 /* ===== 业务中心控制逻辑 ===== */
@@ -1315,8 +1481,17 @@ function renderAll(){
 
 setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString("sr-RS"),1000);
 setInterval(v31RefreshCorePanel,2000);
-initSupabase();
-renderAll();
+(async function(){
+  renderAll();
+  const ready=await initSupabase();
+  if(ready){
+    try{await loadCloudData();}
+    catch(e){
+      console.error("启动时加载 Supabase 失败",e);
+      setSupabaseStatus("连接失败："+(e.message||e),false);
+    }
+  }
+})();
 </script>
 </body>
 </html>
