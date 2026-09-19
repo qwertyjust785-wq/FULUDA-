@@ -256,7 +256,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 <section id="data" class="page">
 <h1 data-i18n="dataTitle">数据与云端设置 / Podaci</h1>
 <div class="panel">
-  <h3>☁️ Supabase 云端数据库配置</h3>
+  <h3>☁️ Supabase 云端数据库配置 / 自动连接</h3>
   <p class="small">将 Supabase 的 API Key 填入下方后，系统将自动连接云端，实现手机与电脑数据实时同步！</p>
   <div class="form" style="margin-bottom:15px;">
     <div><label>Project URL</label><input id="spUrl" placeholder="https://xxx.supabase.co"></div>
@@ -386,6 +386,12 @@ let db=JSON.parse(localStorage.getItem(KEY))||{sales:[],services:[],stock:[],cus
 let lang=localStorage.getItem("FULUDA_LANG")||"zh";
 let supabaseClient = null;
 
+// V5.2：内置云端配置。新设备无需重新填写。
+// Publishable Key 可用于前端；绝不要把 Secret/service_role key 放进这里。
+const DEFAULT_SUPABASE_URL = "https://cxfjythrxbngzpsfpydy.supabase.co";
+const DEFAULT_SUPABASE_KEY = "sb_publishable_6OHkD3t6DYOFgAXFP2DP2A_Skx_Q-xK";
+const CLOUD_MIGRATION_KEY = "FULUDA_CLOUD_MIGRATION_V52";
+
 function setSupabaseStatus(message, ok=null){
   const el=document.getElementById("supabaseStatus");
   if(!el)return;
@@ -453,8 +459,8 @@ async function syncAllToCloud(){
   setSupabaseStatus("已连接，数据已同步",true);
 }
 
-async function loadCloudData(){
-  if(!supabaseClient)return false;
+async function readAllCloudData(){
+  if(!supabaseClient) throw new Error("Supabase 尚未连接");
   const names=Object.keys(CLOUD_MAP);
   const results=await Promise.all(names.map(async name=>{
     const table=name==="stockMoves"?"stock_moves":name;
@@ -462,26 +468,65 @@ async function loadCloudData(){
     if(error)throw error;
     return [name,data||[]];
   }));
-  let total=0;
-  for(const [,rows] of results)total+=rows.length;
+  return Object.fromEntries(results);
+}
 
-  if(total===0){
-    if(cloudHasLocalData()){
-      setSupabaseStatus("云端为空，正在上传现有本地数据…");
-      await syncAllToCloud();
-      return true;
-    }
-    renderAll();
-    setSupabaseStatus("已连接，云端暂无数据",true);
+function countRecords(dataObj){
+  return Object.values(dataObj||{}).reduce((n,v)=>n+(Array.isArray(v)?v.length:0),0);
+}
+
+function applyCloudData(dataObj){
+  for(const name of Object.keys(CLOUD_MAP)){
+    const rows=dataObj[name]||[];
+    db[name]=rows.map(CLOUD_MAP[name].fromRow);
+  }
+  localStorage.setItem(KEY,JSON.stringify(db));
+  renderAll();
+}
+
+async function loadCloudData(){
+  if(!supabaseClient)return false;
+
+  const cloudData=await readAllCloudData();
+  const cloudTotal=countRecords(cloudData);
+  const localHasData=cloudHasLocalData();
+
+  // 首次连接：云端为空而本地有数据 → 安全迁移本地数据到云端
+  if(cloudTotal===0 && localHasData){
+    setSupabaseStatus("云端为空，正在迁移本地数据…");
+    await syncAllToCloud();
+    localStorage.setItem(CLOUD_MIGRATION_KEY,"done");
+    setSupabaseStatus("已连接，本地数据已迁移到云端",true);
     return true;
   }
 
-  results.forEach(([name,rows])=>{
-    db[name]=rows.map(CLOUD_MAP[name].fromRow);
-  });
-  localStorage.setItem(KEY,JSON.stringify(db));
-  renderAll();
-  setSupabaseStatus("已连接，已加载云端数据",true);
+  // 两边都有数据时绝不自动覆盖，给用户选择
+  if(cloudTotal>0 && localHasData && !localStorage.getItem(CLOUD_MIGRATION_KEY)){
+    const choice=confirm(
+      "检测到本机和云端都已有数据。\\n\\n" +
+      "点击“确定”：以云端数据为准（本机数据会被云端替换）。\\n" +
+      "点击“取消”：暂不加载云端数据，保留本机数据。\\n\\n" +
+      "建议首次使用时先备份本机数据。"
+    );
+    if(choice){
+      applyCloudData(cloudData);
+      localStorage.setItem(CLOUD_MIGRATION_KEY,"done");
+      setSupabaseStatus("已连接，已加载云端数据",true);
+      return true;
+    }else{
+      setSupabaseStatus("已连接，但暂未加载云端数据",true);
+      return true;
+    }
+  }
+
+  if(cloudTotal>0){
+    applyCloudData(cloudData);
+    localStorage.setItem(CLOUD_MIGRATION_KEY,"done");
+    setSupabaseStatus("已连接，已加载云端数据",true);
+  }else{
+    renderAll();
+    setSupabaseStatus("已连接，云端暂无数据",true);
+  }
   return true;
 }
 
@@ -490,10 +535,11 @@ function scheduleCloudSync(){
   if(!supabaseClient)return;
   clearTimeout(cloudSyncTimer);
   cloudSyncTimer=setTimeout(async()=>{
-    try{await syncAllToCloud();}
-    catch(e){
+    try{
+      await syncAllToCloud();
+    }catch(e){
       console.error("Supabase 同步失败",e);
-      setSupabaseStatus("同步失败："+(e.message||e),false);
+      setSupabaseStatus("云端同步失败："+(e.message||e),false);
     }
   },500);
 }
@@ -516,22 +562,36 @@ async function saveSupabaseConfig() {
 }
 
 async function initSupabase() {
-  let u = localStorage.getItem("SUPABASE_URL"), k = localStorage.getItem("SUPABASE_KEY");
-  if(u && k && window.supabase) {
-    try {
-      supabaseClient = window.supabase.createClient(u, k);
-      const urlEl=document.getElementById("spUrl"), keyEl=document.getElementById("spKey");
-      if(urlEl)urlEl.value = u;
-      if(keyEl)keyEl.value = k;
-      setSupabaseStatus("客户端已初始化");
-      return true;
-    } catch(e) {
-      supabaseClient=null;
-      console.error("Supabase 初始化失败", e);
-      setSupabaseStatus("初始化失败："+(e.message||e),false);
-    }
+  // V5.2：优先使用浏览器保存的配置，否则使用程序内置配置。
+  let u = localStorage.getItem("SUPABASE_URL") || DEFAULT_SUPABASE_URL;
+  let k = localStorage.getItem("SUPABASE_KEY") || DEFAULT_SUPABASE_KEY;
+
+  if(!u || !k || !window.supabase) {
+    setSupabaseStatus("客户端未就绪",false);
+    return false;
   }
-  return false;
+
+  try {
+    supabaseClient = window.supabase.createClient(u, k);
+    localStorage.setItem("SUPABASE_URL",u);
+    localStorage.setItem("SUPABASE_KEY",k);
+
+    const urlEl=document.getElementById("spUrl"), keyEl=document.getElementById("spKey");
+    if(urlEl)urlEl.value = u;
+    if(keyEl)keyEl.value = k;
+
+    // 真正测试数据库读权限，而不是仅创建 client
+    const {error}=await supabaseClient.from("stock").select("id").limit(1);
+    if(error)throw error;
+
+    setSupabaseStatus("云端连接成功",true);
+    return true;
+  } catch(e) {
+    supabaseClient=null;
+    console.error("Supabase 初始化/连接测试失败", e);
+    setSupabaseStatus("连接失败："+(e.message||e),false);
+    return false;
+  }
 }
 
 function save(){
@@ -551,7 +611,6 @@ function applyLang(){
  document.querySelectorAll("[data-ph]").forEach(e=>e.placeholder=t(e.dataset.ph));
  document.getElementById("langBtn").textContent=lang==="zh"?"SR / 中文":"中文 / SR";
 }
-function save(){localStorage.setItem(KEY,JSON.stringify(db));renderAll()}
 function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]))}
 function euro(n){return new Intl.NumberFormat("sr-RS",{style:"currency",currency:"RSD",minimumFractionDigits:2}).format(Number(n||0))}
 function money(n){ return (Number(n)||0).toFixed(2); }
@@ -1485,10 +1544,11 @@ setInterval(v31RefreshCorePanel,2000);
   renderAll();
   const ready=await initSupabase();
   if(ready){
-    try{await loadCloudData();}
-    catch(e){
+    try{
+      await loadCloudData();
+    }catch(e){
       console.error("启动时加载 Supabase 失败",e);
-      setSupabaseStatus("连接失败："+(e.message||e),false);
+      setSupabaseStatus("云端加载失败："+(e.message||e),false);
     }
   }
 })();
