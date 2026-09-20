@@ -43,9 +43,35 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 #v31Modal table{width:100%;border-collapse:collapse}
 #v31Modal th,#v31Modal td{padding:8px;border-bottom:1px solid rgba(127,127,127,.2);text-align:left}
 .role-badge{background:rgba(255,255,255,0.2);padding:4px 10px;border-radius:20px;font-size:12px;display:flex;align-items:center;gap:6px}
+
+/* ===== V5.4 Supabase Auth 登录层 ===== */
+.auth-overlay{position:fixed;inset:0;background:rgba(20,28,38,.72);z-index:20000;display:flex;align-items:center;justify-content:center;padding:20px}
+.auth-card{width:min(420px,100%);background:#fff;border-radius:18px;padding:28px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.auth-card h2{margin:0 0 8px}.auth-card p{color:#667085;font-size:14px;line-height:1.6}.auth-card input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d0d5dd;border-radius:9px;margin:6px 0 10px;font-size:15px}.auth-card button{width:100%;margin-top:8px}.auth-error{display:none;color:#b42318;background:#fef3f2;border:1px solid #fecdca;padding:9px;border-radius:8px;font-size:13px;margin-top:10px;white-space:pre-wrap}.auth-hint{font-size:12px;color:#667085;margin-top:12px}
+</style>
+<style>
+.v6-syncbar{position:fixed;right:16px;bottom:16px;z-index:30;background:#fff;border:1px solid #d9e0e5;border-radius:10px;padding:9px 12px;box-shadow:0 8px 30px rgba(0,0,0,.12);font-size:12px}.v6-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#999;margin-right:6px}.v6-panel{box-shadow:0 2px 8px rgba(23,59,87,.05)}
 </style>
 </head>
 <body>
+<div id="v6SyncBar" class="v6-syncbar"><span class="v6-dot" id="v6SyncDot"></span><span id="v6SyncText">V6.0 云端初始化…</span></div>
+<!-- V5.4 Supabase Auth 登录层 -->
+<div id="authOverlay" class="auth-overlay" style="display:none">
+  <div class="auth-card">
+    <div style="font-size:28px;font-weight:800;letter-spacing:1px">FULUDA</div>
+    <h2>登录店铺系统 / Prijava</h2>
+    <p>请使用 Supabase Auth 账号登录。登录后系统会根据账号角色自动显示相应权限。</p>
+    <label>员工编号 / 用户名 / Korisničko ime</label>
+    <input id="authEmail" type="text" autocomplete="username" placeholder="例如：admin 或 ST001">
+    <label>密码 / Lozinka</label>
+    <input id="authPassword" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="btn green" id="authLoginBtn" onclick="loginWithSupabase()">登录 / Prijava</button>
+    <button class="btn gray" onclick="hideAuthOverlay()">取消 / Otkaži</button>
+    <div id="authError" class="auth-error"></div>
+    <div class="auth-hint">正式版支持员工编号登录；邮箱只是 Supabase 内部身份标识。员工账号由管理员创建。</div>
+  </div>
+</div>
+
 
 <!-- 隐藏的小票打印渲染区域 -->
 <div id="receiptPrintArea" style="display:none;"></div>
@@ -55,7 +81,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
   <div class="headright">
     <div class="role-badge">
       <span id="roleDisplay">当前身份: 普通员工 👤</span>
-      <button class="btn small" style="padding:2px 6px;font-size:11px;background:#ffffff33;border:1px solid #ffffffaa;" onclick="toggleRoleModal()">切换 / Prijava</button>
+      <button class="btn small" style="padding:2px 6px;font-size:11px;background:#ffffff33;border:1px solid #ffffffaa;" onclick="toggleRoleModal()">退出 / Odjava</button>
     </div>
     <span id="clock"></span>
     <button class="lang" onclick="toggleLang()" id="langBtn">SR / 中文</button>
@@ -250,6 +276,20 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 <div class="card"><div class="label" data-i18n="expenseTotal">支出</div><div class="num" id="mrExpense">0.00 RSD</div></div>
 <div class="card"><div class="label" data-i18n="netCashflow">当月净收支</div><div class="num" id="mrNet">0.00 RSD</div></div>
 </div></div>
+<div class="panel v6-panel" style="margin-top:14px">
+  <div class="toolbar"><h3 style="margin:0">V6.0 经营分析 / Poslovna analiza</h3><button class="btn gray" onclick="v6RefreshAnalytics()">刷新 / Osveži</button></div>
+  <div class="cards">
+    <div class="card"><div class="label">商品成本 / Trošak robe</div><div class="num" id="v6Cost">0.00 RSD</div></div>
+    <div class="card"><div class="label">毛利润 / Bruto dobit</div><div class="num" id="v6Gross">0.00 RSD</div></div>
+    <div class="card"><div class="label">净现金流 / Neto tok</div><div class="num" id="v6Net">0.00 RSD</div></div>
+    <div class="card"><div class="label">低库存 / Niska zaliha</div><div class="num" id="v6Low">0</div></div>
+    <div class="card"><div class="label">活跃租赁 / Aktivni najam</div><div class="num" id="v6Rent">0</div></div>
+  </div>
+  <div class="grid">
+    <div class="panel"><h3>热销商品 / Najprodavaniji proizvodi</h3><div class="table-wrap"><table><thead><tr><th>商品</th><th>销量</th><th>销售额</th></tr></thead><tbody id="v6TopProducts"></tbody></table></div></div>
+    <div class="panel"><h3>维修统计 / Servisna statistika</h3><div id="v6ServiceStats" class="small"></div></div>
+  </div>
+</div>
 </section>
 
 <!-- 数据与 Supabase 云端配置 -->
@@ -272,6 +312,19 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
     <button class="btn red admin-only" onclick="clearAll()" data-i18n="clear">清空全部数据</button>
     <input id="importFile" type="file" accept=".json" class="hidden" onchange="importData(event)">
   </div>
+</div>
+<div class="panel admin-only-panel v6-panel" style="margin-top:14px">
+  <h3>👥 员工管理 / Upravljanje zaposlenima</h3>
+  <p class="small">员工使用员工编号 + 密码登录。真正创建 Auth 用户需要部署随 V6.0 提供的 Edge Function。</p>
+  <div class="form">
+    <div><label>员工编号 / Username</label><input id="v6EmpUsername" placeholder="ST001"></div>
+    <div><label>姓名 / Ime</label><input id="v6EmpName" placeholder="员工姓名"></div>
+    <div><label>初始密码 / Lozinka</label><input id="v6EmpPassword" type="password" placeholder="至少8位"></div>
+    <div><label>角色 / Uloga</label><select id="v6EmpRole"><option value="staff">员工 / Zaposleni</option><option value="admin">管理员 / Administrator</option></select></div>
+  </div>
+  <button class="btn green" onclick="v6CreateEmployee()">创建员工 / Kreiraj zaposlenog</button>
+  <div id="v6EmpMsg" class="small" style="margin-top:8px"></div>
+  <div class="table-wrap" style="margin-top:12px"><table><thead><tr><th>编号</th><th>姓名</th><th>角色</th><th>邮箱(内部)</th></tr></thead><tbody id="v6EmpTable"></tbody></table></div>
 </div>
 </section>
 
@@ -347,14 +400,18 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 </div>
 
 <script>
-/* ===== 权限与语言底层 ===== */
-const ADMIN_PASSWORD = "admin123"; 
-let currentRole = localStorage.getItem("FULUDA_ROLE") || "staff"; 
+/* ===== V5.4 Supabase Auth 权限与登录 ===== */
+let currentRole = "staff";
+let currentUser = null;
+let currentProfile = null;
 function isAdmin() { return currentRole === "admin"; }
 
 function updateRoleUI() {
   const display = document.getElementById("roleDisplay");
-  if (display) display.textContent = isAdmin() ? "当前身份: 管理员 🔑" : "当前身份: 普通员工 👤";
+  if (display) {
+    const name = currentProfile?.display_name || currentUser?.email || "";
+    display.textContent = isAdmin() ? `管理员 🔑 ${name}` : `员工 👤 ${name}`;
+  }
   document.querySelectorAll(".admin-only").forEach(el => el.style.display = isAdmin() ? "inline-block" : "none");
   document.querySelectorAll(".admin-only-panel").forEach(el => {
     el.style.opacity = isAdmin() ? "1" : "0.5";
@@ -362,22 +419,62 @@ function updateRoleUI() {
   });
 }
 
-function toggleRoleModal() {
-  if (isAdmin()) {
-    if (confirm("是否退出管理员身份？")) {
-      currentRole = "staff";
-      localStorage.setItem("FULUDA_ROLE", currentRole);
-      updateRoleUI(); renderAll();
+function showAuthOverlay(message="") {
+  const o=document.getElementById("authOverlay"); if(o)o.style.display="flex";
+  const e=document.getElementById("authError"); if(e){e.textContent=message;e.style.display=message?"block":"none";}
+  setTimeout(()=>document.getElementById("authEmail")?.focus(),50);
+}
+function hideAuthOverlay(){ const o=document.getElementById("authOverlay"); if(o && currentUser)o.style.display="none"; }
+function setAuthError(msg){ const e=document.getElementById("authError"); if(e){e.textContent=msg||"";e.style.display=msg?"block":"none";} }
+
+async function loadCurrentProfile(){
+  if(!supabaseClient || !currentUser) return false;
+  const {data,error}=await supabaseClient.from("profiles").select("id,email,username,display_name,role").eq("id",currentUser.id).maybeSingle();
+  if(error) throw error;
+  if(!data) throw new Error("该账号尚未配置 FULUDA 权限，请由管理员创建/配置账号。 / Profil korisnika nije podešen.");
+  currentProfile=data;
+  currentRole=currentProfile.role||"staff";
+  updateRoleUI();
+  return true;
+}
+
+async function loginWithSupabase(){
+  if(!supabaseClient) return setAuthError("云端客户端尚未准备好，请刷新页面。 / Supabase nije spreman.");
+  const login=document.getElementById("authEmail")?.value.trim();
+  const password=document.getElementById("authPassword")?.value||"";
+  if(!login||!password) return setAuthError("请输入员工编号/用户名和密码。 / Unesite korisničko ime i lozinku.");
+  const btn=document.getElementById("authLoginBtn"); if(btn)btn.disabled=true;
+  setAuthError("正在登录…");
+  try{
+    let email=login;
+    if(!login.includes("@")){
+      const {data:resolvedEmail,error:profileError}=await supabaseClient.rpc("fuluda_resolve_login_email",{p_username:login.toLowerCase()});
+      if(profileError) throw profileError;
+      if(!resolvedEmail) throw new Error("找不到该员工编号。 / Korisničko ime nije pronađeno.");
+      email=resolvedEmail;
     }
-  } else {
-    let pwd = prompt("请输入管理员密码:");
-    if (pwd === ADMIN_PASSWORD) {
-      currentRole = "admin";
-      localStorage.setItem("FULUDA_ROLE", currentRole);
-      alert("登录管理员成功！");
-      updateRoleUI(); renderAll();
-    } else if (pwd !== null) alert("密码错误！");
-  }
+    const {data,error}=await supabaseClient.auth.signInWithPassword({email,password});
+    if(error) throw error;
+    currentUser=data.user;
+    await loadCurrentProfile();
+    hideAuthOverlay(); setAuthError("");
+    setSupabaseStatus("已登录："+(isAdmin()?"管理员":"员工"),true);
+    v6SetSync("已连接 / Povezano",true); v6StartRealtime();
+    await loadCloudData(); renderAll();
+  }catch(e){ console.error(e); setAuthError("登录失败："+(e.message||e)); v6SetSync("登录失败",false); }
+  finally{ if(btn)btn.disabled=false; }
+}
+async function toggleRoleModal(){
+  if(!currentUser) return showAuthOverlay();
+  if(confirm("确定退出当前账号吗？ / Da li želite da se odjavite?")) await logoutFromSupabase();
+}
+async function logoutFromSupabase(){
+  try{ await supabaseClient?.auth.signOut(); }catch(e){ console.error(e); }
+  if(v6RealtimeChannel){try{supabaseClient?.removeChannel(v6RealtimeChannel)}catch(e){}}
+  currentUser=null; currentProfile=null; currentRole="staff";
+  updateRoleUI();
+  showAuthOverlay("已退出，请重新登录。 / Odjavljeni ste.");
+  setSupabaseStatus("等待登录",false);
 }
 
 /* ===== 核心数据库与 Supabase ===== */
@@ -391,6 +488,7 @@ let supabaseClient = null;
 const DEFAULT_SUPABASE_URL = "https://cxfjythrxbngzpsfpydy.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_6OHkD3t6DYOFgAXFP2DP2A_Skx_Q-xK";
 const CLOUD_MIGRATION_KEY = "FULUDA_CLOUD_MIGRATION_V52";
+const FULUDA_VERSION = "V6.0";
 
 function setSupabaseStatus(message, ok=null){
   const el=document.getElementById("supabaseStatus");
@@ -446,17 +544,50 @@ async function syncTableToCloud(name){
   if(!supabaseClient)return;
   const mapper=CLOUD_MAP[name];
   if(!mapper)return;
+  const table=name==="stockMoves"?"stock_moves":name;
   const rows=(db[name]||[]).map(mapper.toRow);
-  if(!rows.length)return;
-  const {error}=await supabaseClient.from(name==="stockMoves"?"stock_moves":name).upsert(rows,{onConflict:"id"});
-  if(error)throw error;
+
+  // V5.3：以本机当前数据为准做一次完整同步。
+  // 先删除云端已不存在于本机的记录，再 upsert 本机记录，
+  // 这样“删除”也能真正同步到 Supabase，而不是只新增/修改。
+  const {data:cloudRows,error:readError}=await supabaseClient.from(table).select("id");
+  if(readError)throw readError;
+  const localIds=new Set(rows.map(r=>String(r.id)));
+  const staleIds=(cloudRows||[]).map(r=>r.id).filter(id=>!localIds.has(String(id)));
+  if(staleIds.length && isAdmin()){
+    const {error}=await supabaseClient.from(table).delete().in("id",staleIds);
+    if(error)throw error;
+  }
+
+  if(rows.length){
+    const {error}=await supabaseClient.from(table).upsert(rows,{onConflict:"id"});
+    if(error)throw error;
+  }
 }
 
+let cloudSyncInProgress=false;
+let cloudSyncPending=false;
+
 async function syncAllToCloud(){
-  if(!supabaseClient)return;
-  setSupabaseStatus("正在同步…");
-  for(const name of Object.keys(CLOUD_MAP)) await syncTableToCloud(name);
-  setSupabaseStatus("已连接，数据已同步",true);
+  if(!supabaseClient)return false;
+  if(cloudSyncInProgress){
+    cloudSyncPending=true;
+    return false;
+  }
+  cloudSyncInProgress=true;
+  cloudSyncPending=false;
+  try{
+    setSupabaseStatus("正在保存到云端…");
+    for(const name of Object.keys(CLOUD_MAP)) { if(!isAdmin() && !["sales","services","stock","customers","vehicles","rents","stockMoves"].includes(name)) continue; await syncTableToCloud(name); }
+    setSupabaseStatus("云端保存成功，数据已同步",true); v6LocalPending=false; v6SetSync("实时同步 / Realtime",true); v6OfflineQueue=[]; v6QueueLocal(); v6WriteAudit("cloud_sync","","",{counts:countRecords(db)}); if(currentUser) v6StartRealtime();
+    return true;
+  }catch(e){
+    setSupabaseStatus("云端保存失败："+(e.message||e),false);
+    throw e;
+  }finally{
+    cloudSyncInProgress=false;
+    if(cloudSyncPending) scheduleCloudSync();
+  }
 }
 
 async function readAllCloudData(){
@@ -534,12 +665,13 @@ let cloudSyncTimer=null;
 function scheduleCloudSync(){
   if(!supabaseClient)return;
   clearTimeout(cloudSyncTimer);
+  setSupabaseStatus("正在准备保存到云端…");
   cloudSyncTimer=setTimeout(async()=>{
     try{
       await syncAllToCloud();
     }catch(e){
       console.error("Supabase 同步失败",e);
-      setSupabaseStatus("云端同步失败："+(e.message||e),false);
+      // syncAllToCloud 已设置失败状态；这里不再覆盖错误信息。
     }
   },500);
 }
@@ -549,58 +681,47 @@ async function saveSupabaseConfig() {
   if(!u || !k) return alert("请填写正确的 URL 和 Key！");
   localStorage.setItem("SUPABASE_URL", u);
   localStorage.setItem("SUPABASE_KEY", k);
-  initSupabase();
-  try{
-    await loadCloudData();
-  }catch(e){
-    console.error("Supabase 连接/读取失败",e);
-    setSupabaseStatus("连接失败："+(e.message||e),false);
-    alert("Supabase 连接失败：\n"+(e.message||e));
-    return;
-  }
-  alert("Supabase 已连接，云端数据已准备就绪！");
+  const ok=await initSupabase();
+  if(!ok) return;
+  showAuthOverlay("配置已保存，请登录。 / Konfiguracija je sačuvana, prijavite se.");
 }
 
 async function initSupabase() {
-  // V5.2：优先使用浏览器保存的配置，否则使用程序内置配置。
   let u = localStorage.getItem("SUPABASE_URL") || DEFAULT_SUPABASE_URL;
   let k = localStorage.getItem("SUPABASE_KEY") || DEFAULT_SUPABASE_KEY;
-
-  if(!u || !k || !window.supabase) {
-    setSupabaseStatus("客户端未就绪",false);
-    return false;
-  }
-
+  if(!u || !k || !window.supabase) { setSupabaseStatus("客户端未就绪",false); return false; }
   try {
-    supabaseClient = window.supabase.createClient(u, k);
+    supabaseClient = window.supabase.createClient(u,k);
     localStorage.setItem("SUPABASE_URL",u);
     localStorage.setItem("SUPABASE_KEY",k);
-
     const urlEl=document.getElementById("spUrl"), keyEl=document.getElementById("spKey");
-    if(urlEl)urlEl.value = u;
-    if(keyEl)keyEl.value = k;
-
-    // 真正测试数据库读权限，而不是仅创建 client
-    const {error}=await supabaseClient.from("stock").select("id").limit(1);
-    if(error)throw error;
-
-    setSupabaseStatus("云端连接成功",true);
+    if(urlEl)urlEl.value=u; if(keyEl)keyEl.value=k;
+    const {data:{session}}=await supabaseClient.auth.getSession();
+    if(session?.user){
+      currentUser=session.user;
+      await loadCurrentProfile();
+      setSupabaseStatus("已登录："+(isAdmin()?"管理员":"员工"),true);
+      return true;
+    }
+    setSupabaseStatus("等待登录",false);
+    showAuthOverlay();
     return true;
-  } catch(e) {
-    supabaseClient=null;
-    console.error("Supabase 初始化/连接测试失败", e);
+  }catch(e){
+    supabaseClient=null; console.error("Supabase 初始化失败",e);
     setSupabaseStatus("连接失败："+(e.message||e),false);
+    showAuthOverlay("云端初始化失败："+(e.message||e));
     return false;
   }
 }
 
 function save(){
-  localStorage.setItem(KEY,JSON.stringify(db));
-  renderAll();
-  scheduleCloudSync();
+  if(!currentUser){ showAuthOverlay("请先登录后再保存。 / Prijavite se pre čuvanja."); return; }
+  localStorage.setItem(KEY,JSON.stringify(db)); renderAll(); v6LocalPending=true;
+  if(supabaseClient && navigator.onLine){ scheduleCloudSync(); }
+  else { v6QueueAdd("cloud unavailable"); v6SetSync("离线：本地已保存，待联网同步",false); }
 }
 const T={
-zh:{subtitle:"E-BIKE SHOP MANAGEMENT V5.0",home:"首页 / Početna",sales:"销售 / Prodaja",promotions:"活动 / Akcije",service:"维修 / Servis",stock:"库存 / Zalihe",customers:"客户 / Kupci",vehicles:"车辆 / Vozila",rent:"出租 / Iznajmljivanje",expenses:"支出 / Troškovi",reports:"报表 / Izveštaji",data:"数据 / Podaci",dashboard:"首页 / Dashboard",todayIncome:"今日已收 / Danas naplaćeno",monthIncome:"本月已收 / Ovaj mesec",vehiclesInStock:"库存车辆 / Vozila na stanju",pendingService:"待维修 / Servis otvoren",stockWarnings:"库存预警 / Niska zaliha",recentService:"最近维修 / Poslednji servisi",stockAlert:"库存预警 / Upozorenje zaliha",salesTitle:"销售 / Prodaja",promotionsTitle:"销售活动 / Akcije i Promocije",newSale:"新增销售 / Nova prodaja",serviceTitle:"维修 / Servis",newService:"新增维修 / Novi servis",stockTitle:"库存 / Zalihe",newStock:"添加库存 / Nova zaliha",customersTitle:"客户 / Kupci",newCustomer:"新增客户 / Novi kupac",vehiclesTitle:"车辆档案 / Vozila",newVehicle:"新增车辆 / Novo vozilo",rentTitle:"出租 / Iznajmljivanje",newRent:"新出租 / Novi najam",expensesTitle:"支出 / Troškovi",newExpense:"新增支出 / Novi trošak",reportsTitle:"报表 / Izveštaji",dataTitle:"数据与设置 / Podaci i podešavanja",date:"日期 / Datum",customer:"客户 / Kupac",item:"项目 / Stavka",amount:"金额 / Iznos",payment:"付款 / Plaćanje",status:"状态 / Status",actions:"操作 / Radnje",vehicle:"车辆 / Vozilo",fault:"故障 / Kvar",total:"总额 / Ukupno",code:"编号 / Šifra",part:"配件 / Deo",quantity:"库存 / Količina",minimum:"最低 / Minimum",cost:"采购价 / Nabavna cena",sellPrice:"售价 / Prodajna cena",name:"姓名 / Ime",phone:"电话 / Telefon",serviceCount:"维修次数 / Servisi",spent:"累计消费 / Potrošnja",model:"车型 / Model",battery:"电池容量 / Baterija",motor:"电机功率 / Motor",start:"开始 / Početak",end:"结束 / Kraj",rentFee:"租金 / Najam",deposit:"押金 / Depozit",salesIncome:"销售实收 / Prodaja",serviceIncome:"维修实收 / Servis",rentIncome:"出租收入 / Najam",expenseTotal:"支出 / Troškovi",totalIncome:"总收入 / Ukupno",grossProfit:"毛利润（精算） / Bruto dobit (sa troškovima)",monthlyReport:"月度经营报表 / Mesečni izveštaj",netCashflow:"当月净收支 / Neto priliv",tradein:"以旧换新 / Zamena starog za novo",newPrice:"新车售价 RSD / Cena novog RSD",oldValue:"旧车估价 RSD / Procena starog RSD",customerPays:"客户应付 / Kupac plaća",backupTitle:"长期使用数据管理 / Upravljanje podacima",backupText:"当前版本数据保存在此浏览器本机。正式上线前建议定期导出备份。",export:"导出备份 JSON",import:"导入备份 JSON",clear:"清空全部数据",v3notice:"现已支持【销售/维修与库存联动扣减】：售出车辆或消耗配件将自动同步扣减库存！",searchSales:"搜索客户 / 车型 / 车架号",searchService:"搜索客户 / 电话 / 车架号",searchStock:"搜索配件",searchCustomer:"搜索姓名 / 电话",searchVehicle:"搜索车型 / 车架号",searchExpense:"搜索类别 / 说明",noData:"暂无数据 / Nema podataka",edit:"编辑 / Izmeni",delete:"删除 / Obriši",print:"打印 / Štampa",adjust:"调整库存 / Promena zaliha",save:"保存 / Sačuvaj",cancel:"取消 / Otkaži",confirmDelete:"确定删除这条记录吗？",paid:"已收款 / Plaćeno",unpaid:"未付款 / Nije plaćeno",installment:"分期中 / Na rate",normal:"正常 / Normalno",low:"需要补货 / Dopuniti",returned:"已归还 / Vraćeno",using:"使用中 / U upotrebi",cash:"现金 / Gotovina",bank:"银行转账 / Bankovni transfer",card:"银行卡 / Kartica",notpaid:"未付款 / Nije plaćeno",pending:"待维修 / Čeka servis",repairing:"维修中 / U servisu",done:"已完成 / Završeno",picked:"已取车 / Preuzeto",stockStatus:"库存 / Na stanju",sold:"已售 / Prodato",repairStatus:"维修 / Servis",rentStatus:"出租 / Iznajmljeno",inStock:"库存",expenseCategory:"支出类别 / Vrsta troška",description:"说明 / Opis",vehicleCost:"车辆成本 RSD",salePrice:"销售价格 RSD",labor:"人工费 RSD / Rad RSD",parts:"配件费 RSD / Delovi RSD",faultDesc:"故障描述 / Opis kvara",customerName:"客户姓名",tradeNew:"新车售价 RSD",tradeOld:"旧车估价 RSD",invalidBackup:"备份文件格式不正确",backupOK:"备份恢复成功",clearWarn:"警告：将删除本浏览器中的全部 FULUDA 数据。确定继续？"}
+zh:{subtitle:"E-BIKE SHOP MANAGEMENT V6.0",home:"首页 / Početna",sales:"销售 / Prodaja",promotions:"活动 / Akcije",service:"维修 / Servis",stock:"库存 / Zalihe",customers:"客户 / Kupci",vehicles:"车辆 / Vozila",rent:"出租 / Iznajmljivanje",expenses:"支出 / Troškovi",reports:"报表 / Izveštaji",data:"数据 / Podaci",dashboard:"首页 / Dashboard",todayIncome:"今日已收 / Danas naplaćeno",monthIncome:"本月已收 / Ovaj mesec",vehiclesInStock:"库存车辆 / Vozila na stanju",pendingService:"待维修 / Servis otvoren",stockWarnings:"库存预警 / Niska zaliha",recentService:"最近维修 / Poslednji servisi",stockAlert:"库存预警 / Upozorenje zaliha",salesTitle:"销售 / Prodaja",promotionsTitle:"销售活动 / Akcije i Promocije",newSale:"新增销售 / Nova prodaja",serviceTitle:"维修 / Servis",newService:"新增维修 / Novi servis",stockTitle:"库存 / Zalihe",newStock:"添加库存 / Nova zaliha",customersTitle:"客户 / Kupci",newCustomer:"新增客户 / Novi kupac",vehiclesTitle:"车辆档案 / Vozila",newVehicle:"新增车辆 / Novo vozilo",rentTitle:"出租 / Iznajmljivanje",newRent:"新出租 / Novi najam",expensesTitle:"支出 / Troškovi",newExpense:"新增支出 / Novi trošak",reportsTitle:"报表 / Izveštaji",dataTitle:"数据与设置 / Podaci i podešavanja",date:"日期 / Datum",customer:"客户 / Kupac",item:"项目 / Stavka",amount:"金额 / Iznos",payment:"付款 / Plaćanje",status:"状态 / Status",actions:"操作 / Radnje",vehicle:"车辆 / Vozilo",fault:"故障 / Kvar",total:"总额 / Ukupno",code:"编号 / Šifra",part:"配件 / Deo",quantity:"库存 / Količina",minimum:"最低 / Minimum",cost:"采购价 / Nabavna cena",sellPrice:"售价 / Prodajna cena",name:"姓名 / Ime",phone:"电话 / Telefon",serviceCount:"维修次数 / Servisi",spent:"累计消费 / Potrošnja",model:"车型 / Model",battery:"电池容量 / Baterija",motor:"电机功率 / Motor",start:"开始 / Početak",end:"结束 / Kraj",rentFee:"租金 / Najam",deposit:"押金 / Depozit",salesIncome:"销售实收 / Prodaja",serviceIncome:"维修实收 / Servis",rentIncome:"出租收入 / Najam",expenseTotal:"支出 / Troškovi",totalIncome:"总收入 / Ukupno",grossProfit:"毛利润（精算） / Bruto dobit (sa troškovima)",monthlyReport:"月度经营报表 / Mesečni izveštaj",netCashflow:"当月净收支 / Neto priliv",tradein:"以旧换新 / Zamena starog za novo",newPrice:"新车售价 RSD / Cena novog RSD",oldValue:"旧车估价 RSD / Procena starog RSD",customerPays:"客户应付 / Kupac plaća",backupTitle:"长期使用数据管理 / Upravljanje podacima",backupText:"当前版本数据保存在此浏览器本机。正式上线前建议定期导出备份。",export:"导出备份 JSON",import:"导入备份 JSON",clear:"清空全部数据",v3notice:"现已支持【销售/维修与库存联动扣减】：售出车辆或消耗配件将自动同步扣减库存！",searchSales:"搜索客户 / 车型 / 车架号",searchService:"搜索客户 / 电话 / 车架号",searchStock:"搜索配件",searchCustomer:"搜索姓名 / 电话",searchVehicle:"搜索车型 / 车架号",searchExpense:"搜索类别 / 说明",noData:"暂无数据 / Nema podataka",edit:"编辑 / Izmeni",delete:"删除 / Obriši",print:"打印 / Štampa",adjust:"调整库存 / Promena zaliha",save:"保存 / Sačuvaj",cancel:"取消 / Otkaži",confirmDelete:"确定删除这条记录吗？",paid:"已收款 / Plaćeno",unpaid:"未付款 / Nije plaćeno",installment:"分期中 / Na rate",normal:"正常 / Normalno",low:"需要补货 / Dopuniti",returned:"已归还 / Vraćeno",using:"使用中 / U upotrebi",cash:"现金 / Gotovina",bank:"银行转账 / Bankovni transfer",card:"银行卡 / Kartica",notpaid:"未付款 / Nije plaćeno",pending:"待维修 / Čeka servis",repairing:"维修中 / U servisu",done:"已完成 / Završeno",picked:"已取车 / Preuzeto",stockStatus:"库存 / Na stanju",sold:"已售 / Prodato",repairStatus:"维修 / Servis",rentStatus:"出租 / Iznajmljeno",inStock:"库存",expenseCategory:"支出类别 / Vrsta troška",description:"说明 / Opis",vehicleCost:"车辆成本 RSD",salePrice:"销售价格 RSD",labor:"人工费 RSD / Rad RSD",parts:"配件费 RSD / Delovi RSD",faultDesc:"故障描述 / Opis kvara",customerName:"客户姓名",tradeNew:"新车售价 RSD",tradeOld:"旧车估价 RSD",invalidBackup:"备份文件格式不正确",backupOK:"备份恢复成功",clearWarn:"警告：将删除本浏览器中的全部 FULUDA 数据。确定继续？"}
 };
 
 function t(k){return T[lang][k]||T.zh[k]||k}
@@ -1521,6 +1642,69 @@ function v31OpenPayment(kind,id){
  document.getElementById("v31PayAmount").focus();
 }
 
+
+/* ===== V6.0 production features ===== */
+let v6RealtimeChannel=null;
+let v6LocalPending=false;
+let v6OfflineQueue=JSON.parse(localStorage.getItem("FULUDA_V6_OFFLINE_QUEUE")||"[]");
+const V6_TABLES=["sales","services","stock","customers","vehicles","rents","expenses","stock_moves","payments"];
+function v6SetSync(text,ok=null){const el=document.getElementById("v6SyncText"),dot=document.getElementById("v6SyncDot");if(el)el.textContent=text;if(dot)dot.style.background=ok===true?"#20a464":ok===false?"#c53d3d":"#b17b18";}
+function v6QueueLocal(){localStorage.setItem("FULUDA_V6_OFFLINE_QUEUE",JSON.stringify(v6OfflineQueue));}
+function v6QueueAdd(reason){v6OfflineQueue.push({id:uid("Q"),time:new Date().toISOString(),reason});v6OfflineQueue=v6OfflineQueue.slice(-50);v6QueueLocal();}
+async function v6WriteAudit(action,tableName="",recordId="",details={}){if(!supabaseClient||!currentUser)return;try{await supabaseClient.from("audit_logs").insert({user_id:currentUser.id,action,table_name:tableName||null,record_id:recordId?String(recordId):null,details});}catch(e){console.warn("audit log failed",e);}}
+async function v6StartRealtime(){
+  if(!supabaseClient||!currentUser)return;
+  if(v6RealtimeChannel){try{await supabaseClient.removeChannel(v6RealtimeChannel)}catch(e){}}
+  v6RealtimeChannel=supabaseClient.channel("fuluda-v6-live");
+  V6_TABLES.forEach(table=>{
+    v6RealtimeChannel.on("postgres_changes",{event:"*",schema:"public",table},payload=>v6HandleRealtime(table,payload));
+  });
+  v6RealtimeChannel.subscribe(status=>{if(status==="SUBSCRIBED")v6SetSync("实时同步 / Realtime",true);});
+}
+async function v6HandleRealtime(table,payload){
+  if(v6LocalPending){v6SetSync("⚠️ 有本机修改待同步",false);return;}
+  try{
+    const cloud=await readAllCloudData(); applyCloudData(cloud); localStorage.setItem(KEY,JSON.stringify(db)); renderAll(); v6SetSync("实时同步 / Realtime",true);
+  }catch(e){v6SetSync("实时刷新失败",false);console.warn(e);}
+}
+function v6RefreshAnalytics(){
+  const revenue=(db.sales||[]).reduce((a,x)=>a+Number(x.amount||0),0)+(db.services||[]).reduce((a,x)=>a+Number(x.total||0),0)+(db.rents||[]).filter(x=>x.status==="returned"||x.status==="done").reduce((a,x)=>a+Number(x.rent||0),0);
+  const productCost=(db.sales||[]).reduce((a,x)=>{const st=(db.stock||[]).find(s=>String(s.id)===String(x.stockId));return a+(Number(st?.cost||0)*Number(x.qty||0));},0);
+  const serviceCost=(db.services||[]).reduce((a,x)=>a+(Array.isArray(x.partsItems)?x.partsItems.reduce((z,p)=>z+Number(p.cost||0)*Number(p.qty||1),0):0),0);
+  const expenses=(db.expenses||[]).reduce((a,x)=>a+Number(x.amount||0),0);
+  const gross=revenue-productCost-serviceCost;
+  const net=gross-expenses;
+  const set=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=money(val)+" RSD"};
+  set("v6Cost",productCost+serviceCost);set("v6Gross",gross);set("v6Net",net);
+  const low=document.getElementById("v6Low");if(low)low.textContent=(db.stock||[]).filter(x=>Number(x.qty||0)<=Number(x.min||0)).length;
+  const rent=document.getElementById("v6Rent");if(rent)rent.textContent=(db.rents||[]).filter(x=>!['returned','done'].includes(x.status)).length;
+  const map={};(db.sales||[]).forEach(x=>{const n=x.item||((db.stock||[]).find(s=>String(s.id)===String(x.stockId))?.name)||"未知";map[n]=(map[n]||{qty:0,amount:0});map[n].qty+=Number(x.qty||0);map[n].amount+=Number(x.amount||0)});
+  const top=Object.entries(map).sort((a,b)=>b[1].qty-a[1].qty).slice(0,10);const tb=document.getElementById("v6TopProducts");if(tb)tb.innerHTML=top.map(([n,x])=>`<tr><td>${esc(n)}</td><td>${x.qty}</td><td>${money(x.amount)} RSD</td></tr>`).join("")||`<tr><td colspan="3" class="empty">暂无数据 / Nema podataka</td></tr>`;
+  const ss={};(db.services||[]).forEach(x=>{const k=x.status||"unknown";ss[k]=(ss[k]||0)+1});const se=document.getElementById("v6ServiceStats");if(se)se.innerHTML=Object.entries(ss).map(([k,n])=>`<div style="padding:7px 0;border-bottom:1px solid #eee"><b>${esc(k)}</b>：${n}</div>`).join("")||"暂无维修数据 / Nema servisa";
+}
+async function v6CreateEmployee(){
+  if(!isAdmin())return alert("只有管理员可以创建员工。 / Samo administrator može kreirati zaposlenog.");
+  const username=v("v6EmpUsername").trim().toLowerCase(), displayName=v("v6EmpName").trim()||username, password=v("v6EmpPassword"), role=v("v6EmpRole");
+  if(!/^[a-z0-9._-]{3,32}$/.test(username))return alert("员工编号需要3-32位，只能使用字母、数字、点、下划线或短横线。");
+  if(password.length<8)return alert("密码至少8位。");
+  const msg=document.getElementById("v6EmpMsg");if(msg)msg.textContent="正在创建…";
+  try{
+    const base=(localStorage.getItem("SUPABASE_URL")||DEFAULT_SUPABASE_URL).replace(/\/$/,"");
+    const {data:{session}}=await supabaseClient.auth.getSession();
+    const res=await fetch(base+"/functions/v1/fuluda-create-user",{method:"POST",headers:{"Content-Type":"application/json","Authorization":"Bearer "+session.access_token,"apikey":DEFAULT_SUPABASE_KEY},body:JSON.stringify({username,display_name:displayName,password,role})});
+    const data=await res.json();if(!res.ok||!data.ok)throw new Error(data.error||"创建失败");
+    if(msg)msg.textContent="创建成功："+username;document.getElementById("v6EmpPassword").value="";v6LoadEmployees();await v6WriteAudit("create_employee","profiles",data.id,{username,role});
+  }catch(e){if(msg)msg.textContent="创建失败："+(e.message||e);}
+}
+async function v6LoadEmployees(){
+  const tb=document.getElementById("v6EmpTable");if(!tb||!isAdmin()||!supabaseClient)return;
+  const {data,error}=await supabaseClient.from("profiles").select("username,display_name,role,email").order("display_name");
+  if(error){tb.innerHTML=`<tr><td colspan="4">${esc(error.message)}</td></tr>`;return}
+  tb.innerHTML=(data||[]).map(x=>`<tr><td>${esc(x.username||"")}</td><td>${esc(x.display_name||"")}</td><td>${x.role==="admin"?"管理员 / Admin":"员工 / Staff"}</td><td class="small">${esc(x.email||"")}</td></tr>`).join("")||`<tr><td colspan="4" class="empty">暂无员工</td></tr>`;
+}
+function v6OnlineHandler(){if(navigator.onLine){v6SetSync("网络恢复，正在同步…");scheduleCloudSync();if(currentUser)v6StartRealtime();}else{v6SetSync("离线：本地保存",false);v6QueueAdd("offline")}}
+window.addEventListener("online",v6OnlineHandler);window.addEventListener("offline",()=>v6SetSync("离线：本地保存",false));
+
 function renderAll(){
   updateRoleUI();
   renderHome();
@@ -1536,20 +1720,25 @@ function renderAll(){
   initTradeInPage();
   applyLang();
   v31RefreshCorePanel();
+  v6RefreshAnalytics();
+  if(isAdmin()) v6LoadEmployees();
 }
 
 setInterval(()=>document.getElementById("clock").textContent=new Date().toLocaleString("sr-RS"),1000);
 setInterval(v31RefreshCorePanel,2000);
+supabaseClient?.auth?.onAuthStateChange?.(async (_event,session)=>{
+  if(session?.user){ currentUser=session.user; try{ await loadCurrentProfile(); hideAuthOverlay(); v6StartRealtime(); v6SetSync("实时同步 / Realtime",true); }catch(e){ console.error(e); showAuthOverlay("账号角色读取失败："+(e.message||e)); } }
+  else if(currentUser){ currentUser=null; currentProfile=null; currentRole="staff"; updateRoleUI(); showAuthOverlay(); }
+});
+
 (async function(){
-  renderAll();
+  updateRoleUI();
   const ready=await initSupabase();
-  if(ready){
-    try{
-      await loadCloudData();
-    }catch(e){
-      console.error("启动时加载 Supabase 失败",e);
-      setSupabaseStatus("云端加载失败："+(e.message||e),false);
-    }
+  if(ready && currentUser){
+    try{ await loadCloudData(); renderAll(); v6StartRealtime(); v6SetSync("实时同步 / Realtime",true); }
+    catch(e){ console.error("启动时加载 Supabase 失败",e); setSupabaseStatus("云端加载失败："+(e.message||e),false); }
+  }else{
+    renderAll();
   }
 })();
 </script>
