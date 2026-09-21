@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FULUDA 店铺管理系统 V5.1 云端版</title>
+<title>FULUDA 店铺管理系统 V6.3 云端版</title>
 <!-- 引入 Supabase JS SDK -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
@@ -51,10 +51,13 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 </style>
 <style>
 .v6-syncbar{position:fixed;right:16px;bottom:16px;z-index:30;background:#fff;border:1px solid #d9e0e5;border-radius:10px;padding:9px 12px;box-shadow:0 8px 30px rgba(0,0,0,.12);font-size:12px}.v6-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#999;margin-right:6px}.v6-panel{box-shadow:0 2px 8px rgba(23,59,87,.05)}
+
+/* ===== V6.3 统一搜索关联组件 ===== */
+.assoc-wrap{position:relative;width:100%}.assoc-wrap input{width:100%}.assoc-menu{position:absolute;left:0;right:0;top:calc(100% + 3px);z-index:1000;background:#fff;border:1px solid #ccd3d9;border-radius:7px;box-shadow:0 10px 25px rgba(0,0,0,.12);max-height:260px;overflow:auto;display:none}.assoc-menu.show{display:block}.assoc-item{padding:9px 11px;border-bottom:1px solid #edf0f2;cursor:pointer}.assoc-item:last-child{border-bottom:0}.assoc-item:hover{background:#f1f5f9}.assoc-main{font-weight:600;color:#173b57}.assoc-sub{font-size:11px;color:#6b7280;margin-top:2px}.assoc-empty{padding:10px;color:#8a939b;font-size:12px}.assoc-selected{margin-top:5px;font-size:11px;color:#287a55}.assoc-clear{margin-left:6px;border:0;background:none;color:#b64a49;cursor:pointer}
 </style>
 </head>
 <body>
-<div id="v6SyncBar" class="v6-syncbar"><span class="v6-dot" id="v6SyncDot"></span><span id="v6SyncText">V6.0 云端初始化…</span></div>
+<div id="v6SyncBar" class="v6-syncbar"><span class="v6-dot" id="v6SyncDot"></span><span id="v6SyncText">V6.3 云端初始化…</span></div>
 <!-- V5.4 Supabase Auth 登录层 -->
 <div id="authOverlay" class="auth-overlay" style="display:none">
   <div class="auth-card">
@@ -77,7 +80,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 <div id="receiptPrintArea" style="display:none;"></div>
 
 <header>
-  <div><span class="logo">FULUDA</span><span class="sub" data-i18n="subtitle">E-BIKE SHOP MANAGEMENT V5.1</span></div>
+  <div><span class="logo">FULUDA</span><span class="sub" data-i18n="subtitle">E-BIKE SHOP MANAGEMENT V6.3</span></div>
   <div class="headright">
     <div class="role-badge">
       <span id="roleDisplay">当前身份: 普通员工 👤</span>
@@ -173,7 +176,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
     <div><label>交易日期 / Datum</label><input id="tradeDate" type="date"></div>
     <div><label>客户姓名 / Kupac</label><input id="tradeCustomer" placeholder="客户姓名"></div>
     <div><label>客户电话 / Telefon</label><input id="tradePhone" placeholder="联系电话"></div>
-    <div><label>选购库存新车 / Vozilo iz zaliha</label><select id="tradeStockSelect" onchange="onTradeStockSelect()"></select></div>
+    <div class="full"><label>选购库存新车 / Vozilo iz zaliha</label>${assocHtml('tradeStockSearch','stock','搜索库存车辆 / Search stock','输入车型、编号或名称')}</div>
     <div><label data-i18n="newPrice">新车售价 RSD</label><input id="tradeNew" type="number" value="0" oninput="tradeCalc()"></div>
     <div><label data-i18n="oldValue">旧车估价/抵扣 RSD</label><input id="tradeOld" type="number" value="0" oninput="tradeCalc()"></div>
     <div><label>付款方式 / Plaćanje</label><select id="tradePayMethod"><option value="cash">现金 / Gotovina</option><option value="card">银行卡 / Kartica</option><option value="bank">转账 / Prenos</option><option value="installment">分期付款 / Na rate</option><option value="unpaid">欠款 / Nije plaćeno</option></select></div>
@@ -184,6 +187,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
         <input type="checkbox" id="tradeInboundOld" style="width:auto" checked> 旧车作为二手车评估入库 (Zaliha polovnog vozila)
       </label>
       <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:8px">
+        ${assocHtml('tradeOldVehicleSearch','vehicle','搜索已有车辆档案（可选）','输入旧车车型或 VIN')}
         <input id="tradeOldModel" placeholder="回收旧车型号 (例: KF20 旧车)">
         <input id="tradeOldVin" placeholder="旧车 VIN / 标识号">
       </div>
@@ -277,7 +281,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 <div class="card"><div class="label" data-i18n="netCashflow">当月净收支</div><div class="num" id="mrNet">0.00 RSD</div></div>
 </div></div>
 <div class="panel v6-panel" style="margin-top:14px">
-  <div class="toolbar"><h3 style="margin:0">V6.0 经营分析 / Poslovna analiza</h3><button class="btn gray" onclick="v6RefreshAnalytics()">刷新 / Osveži</button></div>
+  <div class="toolbar"><h3 style="margin:0">V6.3 经营分析 / Poslovna analiza</h3><button class="btn gray" onclick="v6RefreshAnalytics()">刷新 / Osveži</button></div>
   <div class="cards">
     <div class="card"><div class="label">商品成本 / Trošak robe</div><div class="num" id="v6Cost">0.00 RSD</div></div>
     <div class="card"><div class="label">毛利润 / Bruto dobit</div><div class="num" id="v6Gross">0.00 RSD</div></div>
@@ -315,7 +319,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 </div>
 <div class="panel admin-only-panel v6-panel" style="margin-top:14px">
   <h3>👥 员工管理 / Upravljanje zaposlenima</h3>
-  <p class="small">员工使用员工编号 + 密码登录。真正创建 Auth 用户需要部署随 V6.0 提供的 Edge Function。</p>
+  <p class="small">员工使用员工编号 + 密码登录。真正创建 Auth 用户需要部署随 V6.3 提供的 Edge Function。</p>
   <div class="form">
     <div><label>员工编号 / Username</label><input id="v6EmpUsername" placeholder="ST001"></div>
     <div><label>姓名 / Ime</label><input id="v6EmpName" placeholder="员工姓名"></div>
@@ -362,6 +366,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
           <option value="service">维修 / Servis</option>
         </select>
         <input id="v31PayRef" placeholder="销售/维修单ID">
+        <div id="v31PaymentInfo" class="notice" style="margin:6px 0">请选择销售或维修单</div>
         <input id="v31PayAmount" type="number" step="0.01" placeholder="收款金额 / Iznos">
         <select id="v31PayMethod">
           <option value="cash">现金 / Gotovina</option>
@@ -370,6 +375,9 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
         </select>
         <input id="v31PayNote" placeholder="备注 / Napomena">
         <button class="btn green" onclick="v31AddPayment()">登记收款 / Evidentiraj uplatu</button>
+        <div style="overflow:auto;margin-top:8px;max-height:180px">
+          <table><thead><tr><th>日期</th><th>金额</th><th>方式</th><th>期数</th><th>备注 / 员工</th></tr></thead><tbody id="v31PaymentHistory"><tr><td colspan="5" class="empty">请选择单据查看付款历史</td></tr></tbody></table>
+        </div>
       </div>
     </div>
 
@@ -488,7 +496,7 @@ let supabaseClient = null;
 const DEFAULT_SUPABASE_URL = "https://cxfjythrxbngzpsfpydy.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_6OHkD3t6DYOFgAXFP2DP2A_Skx_Q-xK";
 const CLOUD_MIGRATION_KEY = "FULUDA_CLOUD_MIGRATION_V52";
-const FULUDA_VERSION = "V6.0";
+const FULUDA_VERSION = "V6.3";
 
 function setSupabaseStatus(message, ok=null){
   const el=document.getElementById("supabaseStatus");
@@ -540,29 +548,48 @@ function cloudHasLocalData(){
   return Object.values(db).some(v=>Array.isArray(v) && v.length>0);
 }
 
+const CLOUD_BASELINE_KEY="FULUDA_V61_CLOUD_BASELINE";
+function stableJson(x){return JSON.stringify(x,Object.keys(x||{}).sort());}
+function setCloudBaseline(dataObj){try{localStorage.setItem(CLOUD_BASELINE_KEY,JSON.stringify(dataObj||{}));}catch(e){console.warn("保存云端基线失败",e);}}
+function getCloudBaseline(){try{return JSON.parse(localStorage.getItem(CLOUD_BASELINE_KEY)||"{}");}catch(e){return {};}}
+function recordEqual(a,b){return stableJson(a||{})===stableJson(b||{});}
+
 async function syncTableToCloud(name){
-  if(!supabaseClient)return;
+  if(!supabaseClient)return {changed:0,conflicts:0};
   const mapper=CLOUD_MAP[name];
-  if(!mapper)return;
+  if(!mapper)return {changed:0,conflicts:0};
   const table=name==="stockMoves"?"stock_moves":name;
-  const rows=(db[name]||[]).map(mapper.toRow);
+  const baselineObj=getCloudBaseline()[name]||[];
+  const baseline=new Map(baselineObj.map(x=>[String(x.id),x]));
+  const localRows=(db[name]||[]).map(mapper.toRow);
+  const local=new Map(localRows.map(x=>[String(x.id),x]));
+  const changed=[]; const deleted=[];
+  for(const [id,row] of local){const base=baseline.get(id);if(!base||!recordEqual(row,base))changed.push({row,base});}
+  for(const [id,base] of baseline){if(!local.has(id))deleted.push({id,base});}
+  if(!changed.length&&!deleted.length)return {changed:0,conflicts:0};
 
-  // V5.3：以本机当前数据为准做一次完整同步。
-  // 先删除云端已不存在于本机的记录，再 upsert 本机记录，
-  // 这样“删除”也能真正同步到 Supabase，而不是只新增/修改。
-  const {data:cloudRows,error:readError}=await supabaseClient.from(table).select("id");
-  if(readError)throw readError;
-  const localIds=new Set(rows.map(r=>String(r.id)));
-  const staleIds=(cloudRows||[]).map(r=>r.id).filter(id=>!localIds.has(String(id)));
-  if(staleIds.length && isAdmin()){
-    const {error}=await supabaseClient.from(table).delete().in("id",staleIds);
-    if(error)throw error;
-  }
+  const ids=[...changed.map(x=>x.row.id),...deleted.map(x=>x.id)].filter(Boolean);
+  const {data:cloudRows,error}=await supabaseClient.from(table).select("*").in("id",ids);
+  if(error)throw error;
+  const cloud=new Map((cloudRows||[]).map(x=>[String(x.id),x]));
+  let conflicts=0;
 
-  if(rows.length){
-    const {error}=await supabaseClient.from(table).upsert(rows,{onConflict:"id"});
-    if(error)throw error;
+  for(const {row,base} of changed){
+    const current=cloud.get(String(row.id));
+    if(base&&current&&!recordEqual(current,base)){conflicts++;continue;}
+    const {error:e}=await supabaseClient.from(table).upsert(row,{onConflict:"id"});
+    if(e)throw e;
   }
+  for(const {id,base} of deleted){
+    const current=cloud.get(String(id));
+    if(!current)continue;
+    if(!recordEqual(current,base)){conflicts++;continue;}
+    if(isAdmin()){
+      const {error:e}=await supabaseClient.from(table).delete().eq("id",id);
+      if(e)throw e;
+    }
+  }
+  return {changed:changed.length+deleted.length,conflicts};
 }
 
 let cloudSyncInProgress=false;
@@ -570,24 +597,25 @@ let cloudSyncPending=false;
 
 async function syncAllToCloud(){
   if(!supabaseClient)return false;
-  if(cloudSyncInProgress){
-    cloudSyncPending=true;
-    return false;
-  }
-  cloudSyncInProgress=true;
-  cloudSyncPending=false;
+  if(cloudSyncInProgress){cloudSyncPending=true;return false;}
+  cloudSyncInProgress=true;cloudSyncPending=false;
   try{
-    setSupabaseStatus("正在保存到云端…");
-    for(const name of Object.keys(CLOUD_MAP)) { if(!isAdmin() && !["sales","services","stock","customers","vehicles","rents","stockMoves"].includes(name)) continue; await syncTableToCloud(name); }
-    setSupabaseStatus("云端保存成功，数据已同步",true); v6LocalPending=false; v6SetSync("实时同步 / Realtime",true); v6OfflineQueue=[]; v6QueueLocal(); v6WriteAudit("cloud_sync","","",{counts:countRecords(db)}); if(currentUser) v6StartRealtime();
+    setSupabaseStatus("正在安全同步到云端…");
+    let conflicts=0;
+    for(const name of Object.keys(CLOUD_MAP)){
+      if(!isAdmin()&&! ["sales","services","stock","customers","vehicles","rents","stockMoves"].includes(name))continue;
+      const r=await syncTableToCloud(name);conflicts+=Number(r.conflicts||0);
+    }
+    const cloud=await readAllCloudData();
+    applyCloudData(cloud);setCloudBaseline(cloud);
+    if(conflicts){setSupabaseStatus("发现 "+conflicts+" 个数据冲突，已保护云端数据",false);v6SetSync("⚠️ 云端数据已保护",false);}
+    else{setSupabaseStatus("云端安全同步成功",true);v6SetSync("实时同步 / Realtime",true);}
+    v6LocalPending=false;v6OfflineQueue=[];v6QueueLocal();
+    v6WriteAudit("cloud_sync","","",{counts:countRecords(db),conflicts});
+    if(currentUser)v6StartRealtime();
     return true;
-  }catch(e){
-    setSupabaseStatus("云端保存失败："+(e.message||e),false);
-    throw e;
-  }finally{
-    cloudSyncInProgress=false;
-    if(cloudSyncPending) scheduleCloudSync();
-  }
+  }catch(e){setSupabaseStatus("云端同步失败："+(e.message||e),false);throw e;}
+  finally{cloudSyncInProgress=false;if(cloudSyncPending)scheduleCloudSync();}
 }
 
 async function readAllCloudData(){
@@ -612,6 +640,7 @@ function applyCloudData(dataObj){
     db[name]=rows.map(CLOUD_MAP[name].fromRow);
   }
   localStorage.setItem(KEY,JSON.stringify(db));
+  setCloudBaseline(dataObj);
   renderAll();
 }
 
@@ -721,7 +750,7 @@ function save(){
   else { v6QueueAdd("cloud unavailable"); v6SetSync("离线：本地已保存，待联网同步",false); }
 }
 const T={
-zh:{subtitle:"E-BIKE SHOP MANAGEMENT V6.0",home:"首页 / Početna",sales:"销售 / Prodaja",promotions:"活动 / Akcije",service:"维修 / Servis",stock:"库存 / Zalihe",customers:"客户 / Kupci",vehicles:"车辆 / Vozila",rent:"出租 / Iznajmljivanje",expenses:"支出 / Troškovi",reports:"报表 / Izveštaji",data:"数据 / Podaci",dashboard:"首页 / Dashboard",todayIncome:"今日已收 / Danas naplaćeno",monthIncome:"本月已收 / Ovaj mesec",vehiclesInStock:"库存车辆 / Vozila na stanju",pendingService:"待维修 / Servis otvoren",stockWarnings:"库存预警 / Niska zaliha",recentService:"最近维修 / Poslednji servisi",stockAlert:"库存预警 / Upozorenje zaliha",salesTitle:"销售 / Prodaja",promotionsTitle:"销售活动 / Akcije i Promocije",newSale:"新增销售 / Nova prodaja",serviceTitle:"维修 / Servis",newService:"新增维修 / Novi servis",stockTitle:"库存 / Zalihe",newStock:"添加库存 / Nova zaliha",customersTitle:"客户 / Kupci",newCustomer:"新增客户 / Novi kupac",vehiclesTitle:"车辆档案 / Vozila",newVehicle:"新增车辆 / Novo vozilo",rentTitle:"出租 / Iznajmljivanje",newRent:"新出租 / Novi najam",expensesTitle:"支出 / Troškovi",newExpense:"新增支出 / Novi trošak",reportsTitle:"报表 / Izveštaji",dataTitle:"数据与设置 / Podaci i podešavanja",date:"日期 / Datum",customer:"客户 / Kupac",item:"项目 / Stavka",amount:"金额 / Iznos",payment:"付款 / Plaćanje",status:"状态 / Status",actions:"操作 / Radnje",vehicle:"车辆 / Vozilo",fault:"故障 / Kvar",total:"总额 / Ukupno",code:"编号 / Šifra",part:"配件 / Deo",quantity:"库存 / Količina",minimum:"最低 / Minimum",cost:"采购价 / Nabavna cena",sellPrice:"售价 / Prodajna cena",name:"姓名 / Ime",phone:"电话 / Telefon",serviceCount:"维修次数 / Servisi",spent:"累计消费 / Potrošnja",model:"车型 / Model",battery:"电池容量 / Baterija",motor:"电机功率 / Motor",start:"开始 / Početak",end:"结束 / Kraj",rentFee:"租金 / Najam",deposit:"押金 / Depozit",salesIncome:"销售实收 / Prodaja",serviceIncome:"维修实收 / Servis",rentIncome:"出租收入 / Najam",expenseTotal:"支出 / Troškovi",totalIncome:"总收入 / Ukupno",grossProfit:"毛利润（精算） / Bruto dobit (sa troškovima)",monthlyReport:"月度经营报表 / Mesečni izveštaj",netCashflow:"当月净收支 / Neto priliv",tradein:"以旧换新 / Zamena starog za novo",newPrice:"新车售价 RSD / Cena novog RSD",oldValue:"旧车估价 RSD / Procena starog RSD",customerPays:"客户应付 / Kupac plaća",backupTitle:"长期使用数据管理 / Upravljanje podacima",backupText:"当前版本数据保存在此浏览器本机。正式上线前建议定期导出备份。",export:"导出备份 JSON",import:"导入备份 JSON",clear:"清空全部数据",v3notice:"现已支持【销售/维修与库存联动扣减】：售出车辆或消耗配件将自动同步扣减库存！",searchSales:"搜索客户 / 车型 / 车架号",searchService:"搜索客户 / 电话 / 车架号",searchStock:"搜索配件",searchCustomer:"搜索姓名 / 电话",searchVehicle:"搜索车型 / 车架号",searchExpense:"搜索类别 / 说明",noData:"暂无数据 / Nema podataka",edit:"编辑 / Izmeni",delete:"删除 / Obriši",print:"打印 / Štampa",adjust:"调整库存 / Promena zaliha",save:"保存 / Sačuvaj",cancel:"取消 / Otkaži",confirmDelete:"确定删除这条记录吗？",paid:"已收款 / Plaćeno",unpaid:"未付款 / Nije plaćeno",installment:"分期中 / Na rate",normal:"正常 / Normalno",low:"需要补货 / Dopuniti",returned:"已归还 / Vraćeno",using:"使用中 / U upotrebi",cash:"现金 / Gotovina",bank:"银行转账 / Bankovni transfer",card:"银行卡 / Kartica",notpaid:"未付款 / Nije plaćeno",pending:"待维修 / Čeka servis",repairing:"维修中 / U servisu",done:"已完成 / Završeno",picked:"已取车 / Preuzeto",stockStatus:"库存 / Na stanju",sold:"已售 / Prodato",repairStatus:"维修 / Servis",rentStatus:"出租 / Iznajmljeno",inStock:"库存",expenseCategory:"支出类别 / Vrsta troška",description:"说明 / Opis",vehicleCost:"车辆成本 RSD",salePrice:"销售价格 RSD",labor:"人工费 RSD / Rad RSD",parts:"配件费 RSD / Delovi RSD",faultDesc:"故障描述 / Opis kvara",customerName:"客户姓名",tradeNew:"新车售价 RSD",tradeOld:"旧车估价 RSD",invalidBackup:"备份文件格式不正确",backupOK:"备份恢复成功",clearWarn:"警告：将删除本浏览器中的全部 FULUDA 数据。确定继续？"}
+zh:{subtitle:"E-BIKE SHOP MANAGEMENT V6.3",home:"首页 / Početna",sales:"销售 / Prodaja",promotions:"活动 / Akcije",service:"维修 / Servis",stock:"库存 / Zalihe",customers:"客户 / Kupci",vehicles:"车辆 / Vozila",rent:"出租 / Iznajmljivanje",expenses:"支出 / Troškovi",reports:"报表 / Izveštaji",data:"数据 / Podaci",dashboard:"首页 / Dashboard",todayIncome:"今日已收 / Danas naplaćeno",monthIncome:"本月已收 / Ovaj mesec",vehiclesInStock:"库存车辆 / Vozila na stanju",pendingService:"待维修 / Servis otvoren",stockWarnings:"库存预警 / Niska zaliha",recentService:"最近维修 / Poslednji servisi",stockAlert:"库存预警 / Upozorenje zaliha",salesTitle:"销售 / Prodaja",promotionsTitle:"销售活动 / Akcije i Promocije",newSale:"新增销售 / Nova prodaja",serviceTitle:"维修 / Servis",newService:"新增维修 / Novi servis",stockTitle:"库存 / Zalihe",newStock:"添加库存 / Nova zaliha",customersTitle:"客户 / Kupci",newCustomer:"新增客户 / Novi kupac",vehiclesTitle:"车辆档案 / Vozila",newVehicle:"新增车辆 / Novo vozilo",rentTitle:"出租 / Iznajmljivanje",newRent:"新出租 / Novi najam",expensesTitle:"支出 / Troškovi",newExpense:"新增支出 / Novi trošak",reportsTitle:"报表 / Izveštaji",dataTitle:"数据与设置 / Podaci i podešavanja",date:"日期 / Datum",customer:"客户 / Kupac",item:"项目 / Stavka",amount:"金额 / Iznos",payment:"付款 / Plaćanje",status:"状态 / Status",actions:"操作 / Radnje",vehicle:"车辆 / Vozilo",fault:"故障 / Kvar",total:"总额 / Ukupno",code:"编号 / Šifra",part:"配件 / Deo",quantity:"库存 / Količina",minimum:"最低 / Minimum",cost:"采购价 / Nabavna cena",sellPrice:"售价 / Prodajna cena",name:"姓名 / Ime",phone:"电话 / Telefon",serviceCount:"维修次数 / Servisi",spent:"累计消费 / Potrošnja",model:"车型 / Model",battery:"电池容量 / Baterija",motor:"电机功率 / Motor",start:"开始 / Početak",end:"结束 / Kraj",rentFee:"租金 / Najam",deposit:"押金 / Depozit",salesIncome:"销售实收 / Prodaja",serviceIncome:"维修实收 / Servis",rentIncome:"出租收入 / Najam",expenseTotal:"支出 / Troškovi",totalIncome:"总收入 / Ukupno",grossProfit:"毛利润（精算） / Bruto dobit (sa troškovima)",monthlyReport:"月度经营报表 / Mesečni izveštaj",netCashflow:"当月净收支 / Neto priliv",tradein:"以旧换新 / Zamena starog za novo",newPrice:"新车售价 RSD / Cena novog RSD",oldValue:"旧车估价 RSD / Procena starog RSD",customerPays:"客户应付 / Kupac plaća",backupTitle:"长期使用数据管理 / Upravljanje podacima",backupText:"当前版本数据保存在此浏览器本机。正式上线前建议定期导出备份。",export:"导出备份 JSON",import:"导入备份 JSON",clear:"清空全部数据",v3notice:"现已支持【销售/维修与库存联动扣减】：售出车辆或消耗配件将自动同步扣减库存！",searchSales:"搜索客户 / 车型 / 车架号",searchService:"搜索客户 / 电话 / 车架号",searchStock:"搜索配件",searchCustomer:"搜索姓名 / 电话",searchVehicle:"搜索车型 / 车架号",searchExpense:"搜索类别 / 说明",noData:"暂无数据 / Nema podataka",edit:"编辑 / Izmeni",delete:"删除 / Obriši",print:"打印 / Štampa",adjust:"调整库存 / Promena zaliha",save:"保存 / Sačuvaj",cancel:"取消 / Otkaži",confirmDelete:"确定删除这条记录吗？",paid:"已收款 / Plaćeno",unpaid:"未付款 / Nije plaćeno",installment:"分期中 / Na rate",normal:"正常 / Normalno",low:"需要补货 / Dopuniti",returned:"已归还 / Vraćeno",using:"使用中 / U upotrebi",cash:"现金 / Gotovina",bank:"银行转账 / Bankovni transfer",card:"银行卡 / Kartica",notpaid:"未付款 / Nije plaćeno",pending:"待维修 / Čeka servis",repairing:"维修中 / U servisu",done:"已完成 / Završeno",picked:"已取车 / Preuzeto",stockStatus:"库存 / Na stanju",sold:"已售 / Prodato",repairStatus:"维修 / Servis",rentStatus:"出租 / Iznajmljeno",inStock:"库存",expenseCategory:"支出类别 / Vrsta troška",description:"说明 / Opis",vehicleCost:"车辆成本 RSD",salePrice:"销售价格 RSD",labor:"人工费 RSD / Rad RSD",parts:"配件费 RSD / Delovi RSD",faultDesc:"故障描述 / Opis kvara",customerName:"客户姓名",tradeNew:"新车售价 RSD",tradeOld:"旧车估价 RSD",invalidBackup:"备份文件格式不正确",backupOK:"备份恢复成功",clearWarn:"警告：将删除本浏览器中的全部 FULUDA 数据。确定继续？"}
 };
 
 function t(k){return T[lang][k]||T.zh[k]||k}
@@ -785,14 +814,7 @@ async function del(type,id){
     }
     db[type]=db[type].filter(x=>x.id!==id);
     save();
-    try{
-      await deleteCloudRow(type,id);
-      setSupabaseStatus("已连接，数据已同步",true);
-    }catch(e){
-      console.error("删除云端记录失败",e);
-      setSupabaseStatus("本地已删除，但云端删除失败："+(e.message||e),false);
-      alert("本地已删除，但云端删除失败：\n"+(e.message||e));
-    }
+    // V6.3：删除通过安全同步处理，避免休眠设备直接删除其他设备的新数据。
   }
 }
 function option(vv,label,selected){return `<option value="${esc(vv)}" ${selected===vv?"selected":""}>${esc(label)}</option>`}
@@ -898,7 +920,8 @@ function printSaleThermal(id) {
   if(x.pay === 'installment') {
     lines.push({label: "Učešće / 首付", value: euro(x.paid)});
     lines.push({label: "Preostalo / 剩余欠款", value: euro(balance(x))});
-    lines.push({label: "Rate / 分期期数", value: (x.installmentsCount || 1) + " 期 (每期: " + euro(x.installmentAmount || 0) + ")"});
+    const info = getSalePaymentInfo(x);
+    lines.push({label: "Rate / 分期期数", value: info.remainingCount + "/" + info.count + " 期剩余 (每期: " + euro(info.per) + ")"});
   }
   printThermalReceipt("PRODAJNI RAČUN / 销售与分期凭证", lines, x.amount, "Hvala na kupovini! / 感谢惠顾！");
 }
@@ -916,6 +939,59 @@ function printServiceThermal(id) {
   ], x.total || ((x.parts||0)+(x.labor||0)), "Hvala na poverenju! / 保修30天");
 }
 
+/* ===== V6.3 统一搜索/关联组件 ===== */
+const assocState={};
+function assocNorm(x){return String(x??"").trim().toLowerCase();}
+function assocResults(type,q){
+  const n=assocNorm(q);
+  if(type==='stock') return (db.stock||[]).filter(s=>!n||[s.name,s.code].some(v=>assocNorm(v).includes(n))).slice(0,20);
+  if(type==='vehicle') return (db.vehicles||[]).filter(v=>!n||[v.model,v.vin,v.battery,v.motor].some(x=>assocNorm(x).includes(n))).slice(0,20);
+  return [];
+}
+function assocRender(id){
+  const st=assocState[id]; if(!st)return;
+  const menu=document.getElementById(id+'_menu'); if(!menu)return;
+  const rows=assocResults(st.type,st.input.value);
+  if(!rows.length){menu.innerHTML='<div class="assoc-empty">没有找到匹配记录 / Nema rezultata</div>';menu.classList.add('show');return;}
+  menu.innerHTML=rows.map(r=>{
+    const main=st.type==='stock'?`${r.name} <span style="font-weight:normal">· 库存 ${r.qty}</span>`:`${r.model||'车辆'} ${r.vin?`· ${r.vin}`:''}`;
+    const sub=st.type==='stock'?`${r.code||'无编号'} · 售价 ${money(r.sell)} RSD`:`${r.battery||''} ${r.motor?`· ${r.motor}`:''} · 状态 ${r.status||''}`;
+    return `<div class="assoc-item" onclick="assocPick('${id}','${String(r.id).replace(/'/g,"\\'")}')"><div class="assoc-main">${esc(main)}</div><div class="assoc-sub">${esc(sub)}</div></div>`;
+  }).join('');
+  menu.classList.add('show');
+}
+function assocCreate(id,type,opts={}){
+  const input=document.getElementById(id); if(!input)return;
+  if(assocState[id]?.input===input){
+    assocState[id].onPick=opts.onPick||assocState[id].onPick;
+    if(opts.selectedId)assocState[id].selectedId=opts.selectedId;
+    return;
+  }
+  assocState[id]={type,input,onPick:opts.onPick||function(){},selectedId:opts.selectedId||''};
+  input.addEventListener('input',()=>assocRender(id));
+  input.addEventListener('focus',()=>assocRender(id));
+  input.addEventListener('keydown',e=>{if(e.key==='Escape')assocClose(id)});
+  document.addEventListener('click',e=>{if(!e.target.closest('#'+id+'_wrap'))assocClose(id)}, {passive:true});
+  if(opts.selectedId) assocSetSelected(id,opts.selectedId,false);
+}
+function assocPick(id,rid){
+  const st=assocState[id]; if(!st)return;
+  st.selectedId=rid; assocSetSelected(id,rid,true); assocClose(id);
+}
+function assocSetSelected(id,rid,fire=true){
+  const st=assocState[id]; if(!st)return;
+  const rows=assocResults(st.type,''); const r=rows.find(x=>String(x.id)===String(rid));
+  if(!r)return;
+  st.selectedId=rid;
+  st.input.value=st.type==='stock'?`${r.name} (${r.code||'无编号'})`:`${r.model||'车辆'}${r.vin?' · '+r.vin:''}`;
+  const selected=document.getElementById(id+'_selected');
+  if(selected)selected.innerHTML=`已关联 / Povezano: <b>${esc(st.input.value)}</b><button class="assoc-clear" type="button" onclick="assocClear('${id}')">清除</button>`;
+  if(fire)st.onPick(r);
+}
+function assocClear(id){const st=assocState[id];if(!st)return;st.selectedId='';st.input.value='';const s=document.getElementById(id+'_selected');if(s)s.innerHTML='';st.onPick(null);assocRender(id);}
+function assocClose(id){const m=document.getElementById(id+'_menu');if(m)m.classList.remove('show');}
+function assocHtml(id,type,label,placeholder){return `<div><label>${label}</label><div class="assoc-wrap" id="${id}_wrap"><input id="${id}" autocomplete="off" placeholder="${placeholder}"><div id="${id}_menu" class="assoc-menu"></div></div><div id="${id}_selected" class="assoc-selected"></div></div>`;}
+
 /* ===== 销售与分期弹窗及逻辑 ===== */
 let salePage = 1;
 function openSale(id=null){
@@ -929,7 +1005,8 @@ function openSale(id=null){
  openModal(`<h3>${x?t("edit")+" · ":""}${t("newSale")}</h3><div class="form">
  <div><label>${t("date")}</label><input id="fdate" type="date" value="${x?.date||today()}"></div>
  <div><label>${t("customer")}</label><input id="fcustomer" value="${esc(x?.customer||"")}"></div>
- <div class="full"><label>关联库存物品 / 车辆</label><select id="fstockSelect" onchange="onSelectStockItem()">${stockOptions}</select></div>
+ <div class="full"><label>关联库存物品 / 商品</label>${assocHtml('saleStockSearch','stock','搜索库存商品 / Search stock','输入商品名称或编号')}</div>
+ <div class="full"><label>关联车辆档案（可选）</label>${assocHtml('saleVehicleSearch','vehicle','搜索车辆 / Search vehicle','输入车型或 VIN')}</div>
  <div><label>${t("item")}</label><input id="fitem" placeholder="KL26 / KF20 / 配件" value="${esc(x?.item||"")}"></div>
  <div><label>销售数量 (Količina)</label><input id="fqty" type="number" step="1" min="1" value="${x?.qty||1}" oninput="calcSaleTotal()"></div>
  <div><label>单价 (RSD)</label><input id="fprice" type="number" step="0.01" value="${x?(x.amount/(x.qty||1)).toFixed(2):0}" oninput="calcSaleTotal()"></div>
@@ -940,7 +1017,7 @@ function openSale(id=null){
  <div id="installmentBox" class="full" style="background:#f8fafc;padding:12px;border-radius:6px;border:1px solid #e2e8f0;display:none;">
    <label style="font-weight:bold;color:#173b57;margin-bottom:8px;">📊 分期付款设置 (Detalji rate)</label>
    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:0">
-     <div><label>首付金额 (Učešće RSD)</label><input id="fPaidDown" type="number" step="0.01" value="${x?.paid||0}" oninput="calcInstallmentMonthly()"></div>
+     <div><label>首付金额 (Učešće RSD)</label><input id="fPaidDown" type="number" step="0.01" value="${x?.downPayment!=null?x.downPayment:(x?.paid||0)}" oninput="calcInstallmentMonthly()"></div>
      <div><label>分期总期数 (Broj rata)</label><input id="fInstallmentsCount" type="number" step="1" min="1" max="60" value="${x?.installmentsCount||6}" oninput="calcInstallmentMonthly()"></div>
    </div>
    <div style="margin-top:8px;font-size:13px;color:#287a55;font-weight:bold;" id="installmentCalcText">每期应还: 0.00 RSD</div>
@@ -948,6 +1025,9 @@ function openSale(id=null){
 
  </div><div class="actions" style="margin-top:15px"><button class="btn green" onclick="saveSale('${id||""}')">${t("save")}</button><button class="btn gray" onclick="closeModal()">${t("cancel")}</button></div>`);
  toggleInstallmentFields();
+ assocCreate('saleStockSearch','stock',{selectedId:x?.stockId||'',onPick:r=>{ if(r){document.getElementById('fitem').value=r.name;document.getElementById('fprice').value=Number(r.sell||0);calcSaleTotal();} }});
+ assocCreate('saleVehicleSearch','vehicle',{onPick:r=>{if(r){document.getElementById('fitem').value=r.model||document.getElementById('fitem').value;document.getElementById('fvin').value=r.vin||document.getElementById('fvin').value;}}});
+ if(x?.stockId) assocSetSelected('saleStockSearch',x.stockId,false);
  if(x && x.pay === 'installment') calcInstallmentMonthly();
 }
 
@@ -998,7 +1078,7 @@ function calcInstallmentMonthly(){
 
 function saveSale(id){
  if(id && !isAdmin()) return alert("普通员工无权编辑！");
- let stockId = v("fstockSelect"), saleQty = +v("fqty") || 1;
+ let stockId = assocState.saleStockSearch?.selectedId || "", saleQty = +v("fqty") || 1;
  let oldSale = id ? db.sales.find(x => x.id === id) : null;
  const oldItem = oldSale?.stockId ? db.stock.find(s => s.id === oldSale.stockId) : null;
 
@@ -1015,14 +1095,25 @@ function saveSale(id){
  let payMethod = v("fpay");
  let amount = +v("famount");
  let paidAmount = 0;
+ let downPayment = 0;
  let installmentsCount = 1;
  let installmentAmount = 0;
 
  if(payMethod === 'installment') {
-   paidAmount = +v("fPaidDown");
+   downPayment = +v("fPaidDown");
+   if(oldSale && oldSale.pay === 'installment') {
+     paidAmount = Number(oldSale.paid||0);
+     downPayment = oldSale.downPayment!=null ? Number(oldSale.downPayment||0) : Math.max(0, paidAmount-(db.payments||[]).filter(p=>p.kind==='sale'&&String(p.refId)===String(oldSale.id)).reduce((a,p)=>a+Number(p.amount||0),0));
+   } else paidAmount = downPayment;
    installmentsCount = parseInt(v("fInstallmentsCount")) || 1;
-   let remaining = Math.max(0, amount - paidAmount);
-   installmentAmount = installmentsCount > 0 ? remaining / installmentsCount : remaining;
+   const oldCount = oldSale && oldSale.pay === 'installment' ? (parseInt(oldSale.installmentsCount)||0) : 0;
+   const oldPer = oldSale && oldSale.pay === 'installment' ? Number(oldSale.installmentAmount||0) : 0;
+   if(oldCount === installmentsCount && oldPer > 0 && Number(oldSale.amount||0) === Number(amount||0)) {
+     installmentAmount = oldPer;
+   } else {
+     let remaining = Math.max(0, amount - downPayment - Math.max(0, paidAmount - downPayment));
+     installmentAmount = installmentsCount > 0 ? Math.max(0, (amount - downPayment) / installmentsCount) : remaining;
+   }
  } else if(payMethod === 'unpaid') {
    paidAmount = 0;
  } else {
@@ -1040,6 +1131,7 @@ function saveSale(id){
    amount: amount,
    pay: payMethod,
    paid: paidAmount,
+   downPayment: payMethod === 'installment' ? downPayment : undefined,
    installmentsCount: payMethod === 'installment' ? installmentsCount : undefined,
    installmentAmount: payMethod === 'installment' ? installmentAmount : undefined
  };
@@ -1080,7 +1172,8 @@ function renderSales(){
     let paymentDesc = payLabel(x.pay);
     
     if(x.pay === 'installment') {
-      paymentDesc = `分期付款 (${x.installmentsCount || 6}期)`;
+      const info = getSalePaymentInfo(x);
+      paymentDesc = `分期付款 (剩 ${info.remainingCount}/${info.count}期)`;
       if(due > 0) {
         statusBadge = `<span class="badge warn">分期中 (欠 ${euro(due)})</span>`;
       } else {
@@ -1096,13 +1189,11 @@ function renderSales(){
 
 /* ===== 2. 以旧换新与活动 ===== */
 function initTradeInPage() {
-  document.getElementById("tradeDate").value = today();
-  let sel = document.getElementById("tradeStockSelect"); if(!sel) return;
-  let options = `<option value="">-- 请选择库存车 / Izaberi iz zaliha --</option>`;
-  (db.stock || []).forEach(s => {
-    options += `<option value="${s.id}" data-name="${esc(s.name)}" data-price="${s.sell}">${esc(s.name)} (库存: ${s.qty}) - ${s.sell} RSD</option>`;
-  });
-  sel.innerHTML = options;
+  const d=document.getElementById("tradeDate"); if(d)d.value=today();
+  if(document.getElementById('tradeStockSearch')){
+    assocCreate('tradeStockSearch','stock',{onPick:r=>{if(r){document.getElementById('tradeNew').value=Number(r.sell||0);tradeCalc();}}});
+    assocCreate('tradeOldVehicleSearch','vehicle',{onPick:r=>{if(r){document.getElementById('tradeOldModel').value=r.model||'';document.getElementById('tradeOldVin').value=r.vin||'';}}});
+  }
 }
 
 function onTradeStockSelect() {
@@ -1121,7 +1212,7 @@ function tradeCalc(){
 
 function submitTradeIn() {
   let date = v("tradeDate") || today(), cust = v("tradeCustomer").trim(), phone = v("tradePhone").trim();
-  let stockId = v("tradeStockSelect"), oldVal = +v("tradeOld") || 0, payMethod = v("tradePayMethod"), vin = v("tradeVin").trim();
+  let stockId = assocState.tradeStockSearch?.selectedId || "", oldVal = +v("tradeOld") || 0, payMethod = v("tradePayMethod"), vin = v("tradeVin").trim();
   let payAmount = +document.getElementById("tradePay").textContent || 0;
   let inboundOld = document.getElementById("tradeInboundOld").checked;
   let oldModel = v("tradeOldModel").trim() || "二手回收车", oldVin = v("tradeOldVin").trim() || "OLD-" + Date.now().toString().slice(-6);
@@ -1179,11 +1270,12 @@ function openService(id=null){
  
  <div class="full" style="background:#f8fafc;padding:10px;border-radius:6px;border:1px solid #e2e8f0;">
    <label style="font-weight:bold;color:#173b57;">🔧 领用配件 (可重复选择多种配件多选组合)</label>
-   <div style="display:flex;gap:6px;margin-top:6px;">
-     <select id="sStockSelect" style="flex:2">${stockOptions}</select>
-     <input id="sStockQty" type="number" value="1" min="1" placeholder="数量" style="flex:1">
+   <div style="display:grid;grid-template-columns:2fr 1fr auto;gap:6px;margin-top:6px;align-items:end;">
+     <div>${assocHtml('servicePartSearch','stock','搜索库存配件','输入配件名称或编号')}</div>
+     <input id="sStockQty" type="number" value="1" min="1" placeholder="数量">
      <button class="btn orange" type="button" onclick="addServicePartFromStock()">＋ 添加配件</button>
    </div>
+   <div style="margin-top:8px;">${assocHtml('serviceVehicleSearch','vehicle','关联维修车辆（可选）','输入车型或 VIN')}</div>
    <div id="servicePartsList" style="margin-top:8px;min-height:30px"></div>
  </div>
 
@@ -1194,6 +1286,8 @@ function openService(id=null){
  <div class="total">${t("total")}：<span id="stotal">${((x?.parts||0)+(x?.labor||0)).toFixed(2)}</span> RSD</div>
  <div class="actions"><button class="btn green" onclick="saveService('${id||""}')">${t("save")}</button><button class="btn gray" onclick="closeModal()">${t("cancel")}</button></div>`);
  renderServiceDraftParts();
+ assocCreate('servicePartSearch','stock',{});
+ assocCreate('serviceVehicleSearch','vehicle',{onPick:r=>{if(r){document.getElementById('smodel').value=r.model||'';document.getElementById('svin').value=r.vin||'';}}});
 }
 
 function renderServiceDraftParts(){
@@ -1217,8 +1311,8 @@ function removeServiceDraftPart(i){
 }
 
 function addServicePartFromStock(){
-  let sel = document.getElementById("sStockSelect"), stockId = sel.value, useQty = +v("sStockQty") || 1;
-  if (!stockId) return alert("请先选择要添加的配件！");
+  let stockId = assocState.servicePartSearch?.selectedId || "", useQty = +v("sStockQty") || 1;
+  if (!stockId) return alert("请先搜索并选择要添加的配件！");
   let st = db.stock.find(s => s.id === stockId); if (!st) return;
 
   const alreadyInDraft = serviceDraftParts.filter(p => p.stockId === stockId).reduce((a,p) => a + Number(p.qty||0), 0);
@@ -1230,6 +1324,7 @@ function addServicePartFromStock(){
 
   recalculatePartsTotalFromDraft();
   renderServiceDraftParts();
+  assocClear('servicePartSearch');
   let currentFault = v("sfault");
   if (!currentFault.includes(st.name)) {
     document.getElementById("sfault").value = (currentFault ? currentFault + " | " : "") + `更换配件: ${st.name}`;
@@ -1593,21 +1688,84 @@ function v31AdjustStock(){
   save(); v31RefreshCorePanel(); v31RenderMoves(); showV31BusinessCenter();
 }
 
+function getPaymentMeta(p){
+  const raw=String(p?.note||"");
+  if(raw.startsWith("__FULUDA_META__")){
+    try{return JSON.parse(raw.slice(16))||{};}catch(e){return {};}
+  }
+  return {};
+}
+function getPaymentNote(p){
+  const raw=String(p?.note||"");
+  return raw.startsWith("__FULUDA_META__") ? (getPaymentMeta(p).note||"") : raw;
+}
+function getPaymentStaff(p){
+  const m=getPaymentMeta(p);
+  return m.staffName || m.staff || "";
+}
+function makePaymentNote(userNote, installmentNo, staffName){
+  const note=String(userNote||"");
+  const meta={note,installmentNo:installmentNo==null?null:String(installmentNo),staffName:String(staffName||"")};
+  return "__FULUDA_META__"+JSON.stringify(meta);
+}
+function getSalePaymentInfo(doc){
+  const payments=(db.payments||[]).filter(p=>p.kind==="sale"&&String(p.refId)===String(doc.id));
+  const total=Number(doc.amount||0);
+  const totalPaid=Math.min(total,Math.max(0,Number(doc.paid||0)));
+  const downPayment=doc.downPayment!=null ? Math.max(0,Math.min(total,Number(doc.downPayment||0))) : Math.max(0,totalPaid-payments.reduce((sum,p)=>sum+Number(p.amount||0),0));
+  const count=Math.max(1,parseInt(doc.installmentsCount)||1);
+  const installmentTotal=Math.max(0,total-downPayment);
+  const per=Number(doc.installmentAmount||0)>0 ? Number(doc.installmentAmount) : (count>0?installmentTotal/count:installmentTotal);
+  const installmentPaid=Math.max(0,Math.min(installmentTotal,totalPaid-downPayment));
+  const remaining=Math.max(0,total-totalPaid);
+  const fullPaid=Math.min(count,per>0?Math.floor((installmentPaid+0.000001)/per):0);
+  const remainingCount=remaining<=0?0:Math.min(count,Math.max(1,Math.ceil((remaining-0.000001)/Math.max(per,0.000001))));
+  const partial=per>0 ? Math.max(0,Math.min(1,(installmentPaid-fullPaid*per)/per)) : 0;
+  return {payments,totalPaid,downPayment,count,installmentTotal,per,installmentPaid,fullPaid,partial,remaining,remainingCount};
+}
+function getNextInstallmentLabel(info, amount){
+  if(!info||info.count<=0)return null;
+  const before=info.installmentPaid;
+  const after=Math.min(info.installmentTotal,before+Math.max(0,Number(amount||0)));
+  if(info.per<=0)return String(info.fullPaid+1);
+  const beforeFull=Math.min(info.count,Math.floor((before+0.000001)/info.per));
+  const afterFull=Math.min(info.count,Math.floor((after+0.000001)/info.per));
+  const first=Math.min(info.count,beforeFull+1);
+  if(afterFull>beforeFull) return afterFull>first ? `${first}-${afterFull}` : String(first);
+  return `${first}（部分）`;
+}
+
 function v31AddPayment(){
   if(!isAdmin()) return alert("只有管理员可以进行收款登记！");
   const kind=document.getElementById("v31PayKind").value, ref=document.getElementById("v31PayRef").value.trim();
-  const amount=Number(document.getElementById("v31PayAmount").value||0), method=document.getElementById("v31PayMethod").value;
+  let amount=Number(document.getElementById("v31PayAmount").value||0), method=document.getElementById("v31PayMethod").value;
   if(!ref||amount<=0) return alert("请输入单号和收款金额");
   const doc=(kind==="sale"?db.sales:db.services).find(x=>String(x.id)===ref);
   if(!doc) return alert("未找到对应单据");
-  if(amount>balance(doc)) return alert("收款金额不能超过待收金额");
+  const beforeBalance=balance(doc);
+  if(amount>beforeBalance) amount=beforeBalance;
+  if(amount<=0) return alert("该单据已经结清");
   db.payments = db.payments || [];
-  db.payments.push({id:uid("PM"), date:today(), kind, refId:ref, amount, method, note:document.getElementById("v31PayNote").value||""});
+  let installmentNo=null;
+  let info=null;
+  if(kind==="sale" && doc.pay==="installment"){
+    info=getSalePaymentInfo(doc);
+    installmentNo=getNextInstallmentLabel(info,amount);
+  }
+  const staffName=currentProfile?.display_name || currentProfile?.username || currentUser?.email || "";
+  const userNote=document.getElementById("v31PayNote").value||"";
+  db.payments.push({id:uid("PM"),date:today(),kind,refId:ref,amount,method,note:kind==="sale"&&doc.pay==="installment"?makePaymentNote(userNote,installmentNo,staffName):userNote,installmentNo});
   doc.paid=Number(doc.paid||0)+amount;
   const remaining=balance(doc);
   if(kind==="sale" && remaining<=0) doc.pay="cash";
   if(kind==="service" && remaining<=0) doc.status="done";
-  save(); v31RefreshCorePanel(); v31RenderDebts(); alert("收款已登记");
+  save(); v31RefreshCorePanel(); v31RenderDebts(); v31RenderPaymentHistory(ref,kind); alert("收款已登记");
+}
+
+function v31RenderPaymentHistory(ref,kind){
+  const box=document.getElementById("v31PaymentHistory"); if(!box)return;
+  const rows=(db.payments||[]).filter(p=>p.kind===kind&&String(p.refId)===String(ref)).slice().reverse();
+  box.innerHTML=rows.map(p=>`<tr><td>${esc(p.date||"")}</td><td>${euro(p.amount)}</td><td>${esc(p.method||"")}</td><td>${p.installmentNo?`第 ${esc(p.installmentNo)} 期`:"—"}</td><td>${esc(getPaymentNote(p))}${getPaymentStaff(p)?` <span class="small">· ${esc(getPaymentStaff(p))}</span>`:""}</td></tr>`).join("")||`<tr><td colspan="5" class="empty">暂无付款记录 / Nema uplata</td></tr>`;
 }
 
 function v31RenderMoves(){
@@ -1623,8 +1781,13 @@ function v31RenderDebts(){
   db.sales.forEach(x=>{
     const bal=balance(x);
     if(bal>0) {
-      let desc = x.pay === 'installment' ? `分期 (剩 ${x.installmentsCount||6}期，每期 ${euro(x.installmentAmount||0)})` : `欠款`;
-      rows.push(`<tr><td>销售/分期</td><td>${esc(x.customer||"")}</td><td>${x.id}</td><td>${euro(x.amount||0)}</td><td>${euro(x.paid||0)}</td><td><b>${euro(bal)}</b> (${desc}) <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('sale','${x.id}')">还款登记</button></td></tr>`);
+      let desc;
+      if(x.pay === 'installment'){
+        const info=getSalePaymentInfo(x);
+        desc=`分期 (剩 ${info.remainingCount}期，每期 ${euro(info.per)})`;
+        if(info.partial>0) desc+=` · 第 ${info.fullPaid+1} 期已部分支付`;
+      } else desc=`欠款`;
+      rows.push(`<tr><td>销售/分期</td><td>${esc(x.customer||"")}</td><td>${x.id}</td><td>${euro(x.amount||0)}</td><td>${euro(x.paid||0)}</td><td><b>${euro(bal)}</b> (${desc}) <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('sale','${x.id}')">还款登记</button> <button class="btn gray" style="padding:3px 7px" onclick="v31OpenPayment('sale','${x.id}')">付款历史</button></td></tr>`);
     }
   });
   db.services.forEach(x=>{
@@ -1638,12 +1801,21 @@ function v31OpenPayment(kind,id){
  const doc=(kind==="sale"?db.sales:db.services).find(x=>x.id===id);if(!doc)return;
  document.getElementById("v31PayKind").value=kind;
  document.getElementById("v31PayRef").value=id;
- document.getElementById("v31PayAmount").value= (doc.pay === 'installment' && doc.installmentAmount ? doc.installmentAmount : balance(doc)).toFixed(2);
+ const amount=doc.pay === 'installment' && doc.installmentAmount ? Math.min(Number(doc.installmentAmount),balance(doc)) : balance(doc);
+ document.getElementById("v31PayAmount").value=amount.toFixed(2);
+ const info=document.getElementById("v31PaymentInfo");
+ if(info){
+   if(kind==="sale"&&doc.pay==="installment"){
+     const x=getSalePaymentInfo(doc);
+     info.innerHTML=`总期数：${x.count} 期　已还：${x.fullPaid} 期　<strong>剩余：${x.remainingCount} 期</strong><br>每期：${euro(x.per)}　剩余欠款：<strong>${euro(x.remaining)}</strong>`;
+   }else info.innerHTML=`待收：<strong>${euro(balance(doc))}</strong>`;
+ }
+ v31RenderPaymentHistory(id,kind);
  document.getElementById("v31PayAmount").focus();
 }
 
 
-/* ===== V6.0 production features ===== */
+/* ===== V6.3 production features ===== */
 let v6RealtimeChannel=null;
 let v6LocalPending=false;
 let v6OfflineQueue=JSON.parse(localStorage.getItem("FULUDA_V6_OFFLINE_QUEUE")||"[]");
