@@ -75,7 +75,6 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
   </div>
 </div>
 
-
 <!-- 隐藏的小票打印渲染区域 -->
 <div id="receiptPrintArea" style="display:none;"></div>
 
@@ -505,7 +504,6 @@ let db=JSON.parse(localStorage.getItem(KEY))||{sales:[],services:[],stock:[],cus
 let lang=localStorage.getItem("FULUDA_LANG")||"zh";
 let supabaseClient = null;
 
-// V5.2：内置云端配置。新设备无需重新填写。
 const DEFAULT_SUPABASE_URL = "https://cxfjythrxbngzpsfpydy.supabase.co";
 const DEFAULT_SUPABASE_KEY = "sb_publishable_6OHkD3t6DYOFgAXFP2DP2A_Skx_Q-xK";
 const CLOUD_MIGRATION_KEY = "FULUDA_CLOUD_MIGRATION_V52";
@@ -784,15 +782,24 @@ function v(id){return document.getElementById(id)?.value||""}
 
 function ensureCustomer(name,vehicle="",phone=""){
  const cleanName=String(name||"").trim();if(!cleanName)return;
+ const cleanPhone=String(phone||"").trim();
  const cleanVehicle=String(vehicle||"").trim();
- const existing=db.customers.find(x=>String(x.name||"").trim().toLowerCase()===cleanName.toLowerCase());
- if(!existing){db.customers.push({id:uid("CU"),name:cleanName,phone:String(phone||"").trim(),vehicle:cleanVehicle});return;}
- if(phone&&!existing.phone)existing.phone=String(phone).trim();
+ 
+ const existing = db.customers.find(x => {
+   const sameName = String(x.name||"").trim().toLowerCase() === cleanName.toLowerCase();
+   if(!sameName) return false;
+   if(cleanPhone && x.phone) return String(x.phone).trim() === cleanPhone;
+   return true;
+ });
+
+ if(!existing){db.customers.push({id:uid("CU"),name:cleanName,phone:cleanPhone,vehicle:cleanVehicle});return;}
+ if(cleanPhone && !existing.phone) existing.phone = cleanPhone;
  if(cleanVehicle){
    const vehicles=String(existing.vehicle||"").split(" / ").map(x=>x.trim()).filter(Boolean);
    if(!vehicles.some(x=>x.toLowerCase()===cleanVehicle.toLowerCase()))existing.vehicle=[...vehicles,cleanVehicle].join(" / ");
  }
 }
+
 function balance(doc){return Math.max(0,Number(doc?.amount??doc?.total??0)-Number(doc?.paid||0))}
 function addStockMove(item,qty,type,ref){
   db.stockMoves=db.stockMoves||[];
@@ -821,6 +828,10 @@ async function del(type,id){
       if (sale && sale.stockId) {
         let st = db.stock.find(s => s.id === sale.stockId);
         if (st) addStockMove(st,sale.qty||1,"return","删除销售单恢复");
+      }
+      if (sale && sale.vin) {
+        let vh = db.vehicles.find(v => v.vin === sale.vin);
+        if (vh && vh.status === "已售") vh.status = "库存";
       }
     }
     db[type]=db[type].filter(x=>x.id!==id);
@@ -864,7 +875,7 @@ function renderPaginationControls(containerId, currentPage, totalPages, onPageCh
   `;
 }
 
-/* ===== 1. 80mm 正式热敏小票打印逻辑（含分期信息） ===== */
+/* ===== 1. 80mm 正式热敏小票打印逻辑 ===== */
 function printThermalReceipt(title, lines, totalAmount, footerNote="Hvala na poverenju!") {
   let bodyRows = lines.map(l => `
     <div style="display:flex; justify-content:space-between; margin: 4px 0;">
@@ -1005,9 +1016,12 @@ function assocHtml(id,type,label,placeholder){return `<div><label>${label}</labe
 
 /* ===== 销售与分期弹窗及逻辑 ===== */
 let salePage = 1;
+let isAmountManual = false;
+
 function openSale(id=null){
  if(id && !isAdmin()) return alert("普通员工不能修改现有记录！");
  let x=id?db.sales.find(a=>a.id===id):null;
+ isAmountManual = !!id;
 
  openModal(`<h3>${x?t("edit")+" · ":""}${t("newSale")}</h3><div class="form">
  <div><label>${t("date")}</label><input id="fdate" type="date" value="${x?.date||today()}"></div>
@@ -1015,9 +1029,9 @@ function openSale(id=null){
  <div class="full"><label>关联库存物品 / 商品</label>${assocHtml('saleStockSearch','stock','搜索库存商品 / Search stock','输入商品名称或编号')}</div>
  <div class="full"><label>关联车辆档案（可选）</label>${assocHtml('saleVehicleSearch','vehicle','搜索车辆 / Search vehicle','输入车型或 VIN')}</div>
  <div><label>${t("item")}</label><input id="fitem" placeholder="KL26 / KF20 / 配件" value="${esc(x?.item||"")}"></div>
- <div><label>销售数量 (Količina)</label><input id="fqty" type="number" step="1" min="1" value="${x?.qty||1}" oninput="calcSaleTotal()"></div>
- <div><label>单价 (RSD)</label><input id="fprice" type="number" step="0.01" value="${x?(x.amount/(x.qty||1)).toFixed(2):0}" oninput="calcSaleTotal()"></div>
- <div><label>${t("amount")} 总价 (RSD)</label><input id="famount" type="number" step="0.01" value="${x?.amount??0}" oninput="toggleInstallmentFields()"></div>
+ <div><label>销售数量 (Količina)</label><input id="fqty" type="number" step="1" min="1" value="${x?.qty||1}" oninput="calcSaleTotal(false)"></div>
+ <div><label>单价 (RSD)</label><input id="fprice" type="number" step="0.01" value="${x?(x.amount/(x.qty||1)).toFixed(2):0}" oninput="isAmountManual=false;calcSaleTotal(false)"></div>
+ <div><label>${t("amount")} 总价 (RSD)</label><input id="famount" type="number" step="0.01" value="${x?.amount??0}" oninput="onAmountInput()"></div>
  <div><label>VIN (车架号)</label><input id="fvin" value="${esc(x?.vin||"")}"></div>
  <div><label>${t("payment")}</label><select id="fpay" onchange="toggleInstallmentFields()">${option("cash",t("cash"),x?.pay)}${option("bank",t("bank"),x?.pay)}${option("card",t("card"),x?.pay)}${option("installment","分期付款 / Na rate",x?.pay)}${option("unpaid",t("notpaid"),x?.pay)}</select></div>
 
@@ -1032,15 +1046,27 @@ function openSale(id=null){
 
  </div><div class="actions" style="margin-top:15px"><button class="btn green" onclick="saveSale('${id||""}')">${t("save")}</button><button class="btn gray" onclick="closeModal()">${t("cancel")}</button></div>`);
  toggleInstallmentFields();
- assocCreate('saleStockSearch','stock',{selectedId:x?.stockId||'',onPick:r=>{ if(r){document.getElementById('fitem').value=r.name;document.getElementById('fprice').value=Number(r.sell||0);calcSaleTotal();} }});
+ assocCreate('saleStockSearch','stock',{selectedId:x?.stockId||'',onPick:r=>{ if(r){document.getElementById('fitem').value=r.name;document.getElementById('fprice').value=Number(r.sell||0);isAmountManual=false;calcSaleTotal(true);} }});
  assocCreate('saleVehicleSearch','vehicle',{onPick:r=>{if(r){document.getElementById('fitem').value=r.model||document.getElementById('fitem').value;document.getElementById('fvin').value=r.vin||document.getElementById('fvin').value;}}});
  if(x?.stockId) assocSetSelected('saleStockSearch',x.stockId,false);
  if(x && x.pay === 'installment') calcInstallmentMonthly();
 }
 
-function calcSaleTotal(){
+function onAmountInput(){
+  isAmountManual = true;
+  let amt = +v("famount") || 0, q = +v("fqty") || 1;
+  if(q > 0) document.getElementById("fprice").value = (amt / q).toFixed(2);
+  toggleInstallmentFields();
+}
+
+function calcSaleTotal(force=false){
   let q = +v("fqty") || 1, p = +v("fprice") || 0;
-  document.getElementById("famount").value = (q * p).toFixed(2);
+  if(!isAmountManual || force) {
+    document.getElementById("famount").value = (q * p).toFixed(2);
+  } else {
+    let amt = +v("famount") || 0;
+    if(q > 0) document.getElementById("fprice").value = (amt / q).toFixed(2);
+  }
   toggleInstallmentFields();
 }
 
@@ -1077,17 +1103,36 @@ function saveSale(id){
  if(id && !isAdmin()) return alert("普通员工无权编辑！");
  let stockId = assocState.saleStockSearch?.selectedId || "", saleQty = +v("fqty") || 1;
  let oldSale = id ? db.sales.find(x => x.id === id) : null;
- const oldItem = oldSale?.stockId ? db.stock.find(s => s.id === oldSale.stockId) : null;
+ const newVin = v("fvin").trim();
 
  if (stockId) {
    let st = db.stock.find(s => s.id === stockId);
-   if (st && (Number(st.qty||0)+(oldItem===st?Number(oldSale.qty||1):0)) < saleQty) {
-     return alert(`库存不足！当前【${st.name}】库存仅剩 ${st.qty} 台/个。`);
+   let availableQty = Number(st?.qty || 0);
+   if (oldSale && oldSale.stockId === stockId) {
+     availableQty += Number(oldSale.qty || 1);
+   }
+   if (!st || availableQty < saleQty) {
+     return alert(`库存不足！当前【${st?.name || '商品'}】可用库存仅剩 ${availableQty} 台/个。`);
    }
  }
 
- if(oldSale) restoreSaleStock(oldSale,"编辑销售单回滚");
- if(stockId){const st=db.stock.find(s=>s.id===stockId);if(st)addStockMove(st,-saleQty,"sale",id||"新销售单");}
+ if(oldSale) {
+   restoreSaleStock(oldSale,"编辑销售单回滚");
+   if(oldSale.vin && oldSale.vin !== newVin) {
+     let oldVh = db.vehicles.find(v => v.vin === oldSale.vin);
+     if(oldVh && oldVh.status === "已售") oldVh.status = "库存";
+   }
+ }
+
+ if(stockId){
+   const st=db.stock.find(s=>s.id===stockId);
+   if(st) addStockMove(st,-saleQty,"sale",id||"新销售单");
+ }
+
+ if(newVin) {
+   let vh = db.vehicles.find(v => v.vin === newVin);
+   if(vh) vh.status = "已售";
+ }
 
  let payMethod = v("fpay");
  let amount = +v("famount");
@@ -1124,7 +1169,7 @@ function saveSale(id){
    item: v("fitem"),
    stockId: stockId,
    qty: saleQty,
-   vin: v("fvin"),
+   vin: newVin,
    amount: amount,
    pay: payMethod,
    paid: paidAmount,
@@ -1218,11 +1263,16 @@ function submitTradeIn() {
   db.sales.push(saleObj);
   addStockMove(st, -1, "sale", `以旧换新单: ${saleObj.id}`);
 
+  if (vin) {
+    let vh = db.vehicles.find(v => v.vin === vin);
+    if(vh) vh.status = "已售";
+  }
+
   if (inboundOld && oldVal > 0) {
     db.vehicles.push({
       id: uid("VH"), model: oldModel, vin: oldVin, battery: "回收电池", motor: "回收电机", cost: oldVal, sell: Math.round(oldVal * 1.2), status: "库存"
     });
-    let oldStockObj = db.stock.find(s => s.name.toLowerCase() === oldModel.toLowerCase());
+    let oldStockObj = db.stock.find(s => s.name.trim().toLowerCase() === oldModel.trim().toLowerCase());
     if (oldStockObj) {
       addStockMove(oldStockObj, 1, "purchase", `以旧换新回收旧车入库`);
     } else {
@@ -1281,7 +1331,7 @@ function renderServiceDraftParts(){
  }
  el.innerHTML = serviceDraftParts.map((p,i)=>`
    <span class="part-chip">
-     <b>${esc(p.name)}</b> x${p.qty} (${p.price * p.qty} RSD)
+     <b>${esc(p.name)}</b> x${p.qty} (${(p.price * p.qty).toFixed(2)} RSD)
      <button type="button" style="border:0;background:none;color:#b64a49;cursor:pointer;font-weight:bold" onclick="removeServiceDraftPart(${i})">×</button>
    </span>
  `).join(" ");
@@ -1303,7 +1353,7 @@ function addServicePartFromStock(){
 
   let existingInDraft = serviceDraftParts.find(p => p.stockId === stockId);
   if (existingInDraft) existingInDraft.qty += useQty;
-  else serviceDraftParts.push({stockId:st.id, name:st.name, qty:useQty, price:Number(st.sell||0)});
+  else serviceDraftParts.push({stockId:st.id, name:st.name, qty:useQty, price:Number(st.sell||0), cost:Number(st.cost||0)});
 
   recalculatePartsTotalFromDraft();
   renderServiceDraftParts();
@@ -1325,17 +1375,28 @@ function calcServiceTotal(){
 
 function saveService(id){
  if(id && !isAdmin()) return alert("普通员工无权编辑！");
- const old=id?db.services.find(x=>x.id===id):null, oldItems=old?.partsItems||[];
+ const old=id?db.services.find(x=>x.id===id):null;
+ const oldItems=old?.partsItems||[];
+
  const oldQty=oldItems.reduce((m,p)=>(m[p.stockId]=(m[p.stockId]||0)+Number(p.qty||0),m),{});
  const newQty=serviceDraftParts.reduce((m,p)=>(m[p.stockId]=(m[p.stockId]||0)+Number(p.qty||0),m),{});
 
- for(const [stockId,qty] of Object.entries(newQty)){
-   const item=db.stock.find(s=>s.id===stockId);
-   if(!item||Number(item.qty||0)+Number(oldQty[stockId]||0)<qty) return alert(`【${item?.name||'配件'}】库存不足，未保存维修单。`);
+ const allStockIds = new Set([...Object.keys(oldQty), ...Object.keys(newQty)]);
+ for(const sId of allStockIds){
+   const diff = (newQty[sId] || 0) - (oldQty[sId] || 0);
+   if(diff > 0){
+     const st = db.stock.find(s => s.id === sId);
+     if(!st || Number(st.qty||0) < diff) return alert(`【${st?.name||'配件'}】库存不足，未保存维修单。`);
+   }
  }
 
- oldItems.forEach(p=>{const item=db.stock.find(s=>s.id===p.stockId);if(item)addStockMove(item,Number(p.qty||0),"return","编辑维修单恢复库存");});
- serviceDraftParts.forEach(p=>{const item=db.stock.find(s=>s.id===p.stockId);if(item)addStockMove(item,-Number(p.qty||0),"service",id||"新维修单");});
+ allStockIds.forEach(sId => {
+   const diff = (newQty[sId] || 0) - (oldQty[sId] || 0);
+   if(diff !== 0){
+     const st = db.stock.find(s => s.id === sId);
+     if(st) addStockMove(st, -diff, diff > 0 ? "service" : "return", `维修单修改配件: ${id||'新单'}`);
+   }
+ });
  
  let c=v("scustomer"), tot=(+v("sparts")+(+v("slabor")));
  let inputPaid = v("spaid") !== "" ? +v("spaid") : (old?.paid ?? (["done","picked"].includes(v("sstatus")) ? tot : 0));
@@ -1425,12 +1486,12 @@ function openVehicle(id=null){
 function saveVehicle(id){
   if(id && !isAdmin()) return; 
   let modelName = v("vm").trim(); if(!modelName) return alert("请输入车型！");
-  let obj={id:id||uid("VH"),model:modelName,vin:v("vv"),battery:v("vb"),motor:v("ve"),cost:+v("vc"),sell:+v("vs"),status:v("vst")};
+  let obj={id:id||uid("VH"),model:modelName,vin:v("vv").trim(),battery:v("vb"),motor:v("ve"),cost:+v("vc"),sell:+v("vs"),status:v("vst")};
   if(!id) {
-    let existingStock = db.stock.find(s => s.name.toLowerCase() === modelName.toLowerCase());
+    let existingStock = db.stock.find(s => s.name.trim().toLowerCase() === modelName.toLowerCase());
     if (existingStock) addStockMove(existingStock, 1, "purchase", "新增车辆自动入库");
     else {
-      let newStockObj = { id: uid("ST"), code: modelName.toUpperCase(), name: modelName, qty: 1, min: 2, cost: +v("vc"), sell: +v("vs") };
+      let newStockObj = { id: uid("ST"), code: modelName.replace(/\s+/g,'').toUpperCase(), name: modelName, qty: 1, min: 2, cost: +v("vc"), sell: +v("vs") };
       db.stock.push(newStockObj); addStockMove(newStockObj, 1, "purchase", "新增车辆新建库存");
     }
     db.vehicles.push(obj);
@@ -1468,11 +1529,25 @@ function saveRent(id){
   if(id && !isAdmin()) return; 
   let rentVehicleModel = v("rv"); if(!rentVehicleModel) return alert("请选择出租的车辆型号！");
   let obj={id:id||uid("RT"),vehicle:rentVehicleModel,customer:v("rc"),start:v("rs"),end:v("re"),rent:+v("rr"),deposit:+v("rd"),status:id?(db.rents.find(x=>x.id===id)?.status||"using"):"using"};
+  
+  if(!id) {
+    let vh = db.vehicles.find(v => v.model === rentVehicleModel && v.status === "库存");
+    if(vh) vh.status = "出租";
+  }
+
   if(id)db.rents=db.rents.map(x=>x.id===id?obj:x);else db.rents.push(obj);
   ensureCustomer(obj.customer,obj.vehicle);
   closeModal();save();
 }
-function finishRent(id){let x=db.rents.find(a=>a.id===id);if(x){x.status="returned";save()}}
+function finishRent(id){
+  let x=db.rents.find(a=>a.id===id);
+  if(x){
+    x.status="returned";
+    let vh = db.vehicles.find(v => v.model === x.vehicle && v.status === "出租");
+    if(vh) vh.status = "库存";
+    save();
+  }
+}
 
 /* ===== 支出 ===== */
 function openExpense(id=null){
@@ -1512,7 +1587,20 @@ function renderCustomers(){
   let q=(document.getElementById("customerQ")?.value||"").toLowerCase();
   let a=db.customers.filter(x=>(x.name+x.phone).toLowerCase().includes(q));
   document.getElementById("customerBody").innerHTML=a.map(x=>{
-    let ss=db.services.filter(s=>s.customer===x.name),sales=db.sales.filter(s=>s.customer===x.name).reduce((a,b)=>a+(b.amount||0),0),serv=ss.reduce((a,b)=>a+(b.parts||0)+(b.labor||0),0);
+    const custName = String(x.name||"").trim().toLowerCase();
+    const custPhone = String(x.phone||"").trim();
+
+    const isMatch = (docCust, docPhone) => {
+      const matchName = String(docCust||"").trim().toLowerCase() === custName;
+      if(!matchName) return false;
+      if(custPhone && docPhone) return String(docPhone).trim() === custPhone;
+      return true;
+    };
+
+    let ss = db.services.filter(s => isMatch(s.customer, s.phone));
+    let sales = db.sales.filter(s => isMatch(s.customer, "")).reduce((acc,b)=>acc+(b.amount||0),0);
+    let serv = ss.reduce((acc,b)=>acc+(b.parts||0)+(b.labor||0),0);
+
     let actionHtml = isAdmin() ? `<button class="btn" onclick="openCustomer('${x.id}')">${t("edit")}</button><button class="btn red" onclick="del('customers','${x.id}')">${t("delete")}</button>` : `<span class="small" style="color:#999">只读</span>`;
     return `<tr><td>${esc(x.name)}</td><td>${esc(x.phone)}</td><td>${esc(x.vehicle)}</td><td>${ss.length}</td><td>${euro(sales+serv)}</td><td class="actions">${actionHtml}</td></tr>`
   }).join("")||`<tr><td colspan="6" class="empty">${t("noData")}</td></tr>`
@@ -1569,23 +1657,35 @@ function renderHome(){
 function renderReports(){
   let s=db.sales.reduce((a,b)=>a+Number(b.paid||0),0), sv=db.services.reduce((a,b)=>a+Number(b.paid||0),0);
   let r=db.rents.reduce((a,b)=>a+(b.rent||0),0), ex=db.expenses.reduce((a,b)=>a+Number(b.amount||0),0);
+  
+  let totalSalesContract = db.sales.reduce((a, b) => a + Number(b.amount || 0), 0);
+  let totalServiceContract = db.services.reduce((a, b) => a + Number(b.total || 0), 0);
+  
   let saleCost = db.sales.reduce((sum, sale) => sum + ((db.stock.find(s => s.id === sale.stockId)?.cost || 0) * (sale.qty || 1)), 0);
-  let partsCost = db.services.reduce((sum, serv) => sum + (serv.partsItems || []).reduce((pSum, item) => pSum + ((db.stock.find(s => s.id === item.stockId)?.cost || 0) * (item.qty || 1)), 0), 0);
+  let partsCost = db.services.reduce((sum, serv) => 
+    sum + (serv.partsItems || []).reduce((pSum, item) => {
+      let cost = item.cost != null ? Number(item.cost) : (db.stock.find(s => s.id === item.stockId)?.cost || 0);
+      return pSum + (cost * (item.qty || 1));
+    }, 0), 0);
+  
+  let operatingEx = db.expenses.filter(e => e.category !== "采购进货").reduce((a,b)=>a+Number(b.amount||0),0);
 
   document.getElementById("rSales").textContent=euro(s);
   document.getElementById("rService").textContent=euro(sv);
   document.getElementById("rRent").textContent=euro(r);
   document.getElementById("rExpense").textContent=euro(ex);
   document.getElementById("rTotal").textContent=euro(s+sv+r);
-  document.getElementById("rProfit").textContent=euro(s+sv+r - saleCost - partsCost - ex);
+  document.getElementById("rProfit").textContent=euro(totalSalesContract + totalServiceContract + r - saleCost - partsCost - operatingEx);
 }
 
 function receivedInMonth(list,kind,month){
  return list.reduce((sum,doc)=>{
    const payments=(db.payments||[]).filter(p=>p.kind===kind&&String(p.refId)===String(doc.id));
-   const received=payments.filter(p=>String(p.date||"").startsWith(month)).reduce((a,p)=>a+Number(p.amount||0),0);
-   if(!payments.length&&String(doc.date||"").startsWith(month))return sum+Number(doc.paid||0);
-   return sum+received;
+   const paymentInMonth = payments.filter(p=>String(p.date||"").startsWith(month)).reduce((a,p)=>a+Number(p.amount||0),0);
+   const totalPaymentsLogged = payments.reduce((a,p)=>a+Number(p.amount||0),0);
+   const initialPaid = Math.max(0, Number(doc.paid||0) - totalPaymentsLogged);
+   const docCreatedInMonth = String(doc.date||"").startsWith(month);
+   return sum + paymentInMonth + (docCreatedInMonth ? initialPaid : 0);
  },0);
 }
 
@@ -1650,7 +1750,7 @@ function showV31BusinessCenter(){
   const m=document.getElementById("v31Modal"); if(!m)return;
   m.style.display="block";
   const sel=document.getElementById("v31StockId");
-  if(sel) sel.innerHTML=db.stock.map(s=>`<option value="${s.id}">${s.code||""} ${s.name||""}（${s.qty||0}）</option>`).join("");
+  if(sel) sel.innerHTML=db.stock.map(s=>`<option value="${s.id}">${esc(s.code||"")} ${esc(s.name||"")}（${s.qty||0}）</option>`).join("");
   v31RenderMoves(); v31RenderDebts();
 }
 function closeV31(){const m=document.getElementById("v31Modal");if(m)m.style.display="none";}
@@ -1739,8 +1839,8 @@ function v31AddPayment(){
   const userNote=document.getElementById("v31PayNote").value||"";
   db.payments.push({id:uid("PM"),date:today(),kind,refId:ref,amount,method,note:kind==="sale"&&doc.pay==="installment"?makePaymentNote(userNote,installmentNo,staffName):userNote,installmentNo});
   doc.paid=Number(doc.paid||0)+amount;
+  
   const remaining=balance(doc);
-  if(kind==="sale" && remaining<=0) doc.pay="cash";
   if(kind==="service" && remaining<=0) doc.status="done";
   save(); v31RefreshCorePanel(); v31RenderDebts(); v31RenderPaymentHistory(ref,kind); alert("收款已登记");
 }
@@ -1754,8 +1854,8 @@ function v31RenderPaymentHistory(ref,kind){
 function v31RenderMoves(){
   const tb=document.querySelector("#v31MovesTable tbody"); if(!tb)return;
   tb.innerHTML=(db.stockMoves||[]).slice().reverse().slice(0,100).map(m=>`
-    <tr><td>${m.date||""}</td><td>${m.name||""}</td><td>${m.type||""}</td>
-    <td>${m.qty}</td><td>${m.beforeQty}</td><td>${m.afterQty}</td><td>${m.ref||""}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">${t("noData")}</td></tr>`;
+    <tr><td>${esc(m.date||"")}</td><td>${esc(m.name||"")}</td><td>${esc(m.type||"")}</td>
+    <td>${m.qty}</td><td>${m.beforeQty}</td><td>${m.afterQty}</td><td>${esc(m.ref||"")}</td></tr>`).join("") || `<tr><td colspan="7" class="empty">${t("noData")}</td></tr>`;
 }
 
 function v31RenderDebts(){
@@ -1770,12 +1870,12 @@ function v31RenderDebts(){
         desc=`分期 (剩 ${info.remainingCount}期，每期 ${euro(info.per)})`;
         if(info.partial>0) desc+=` · 第 ${info.fullPaid+1} 期已部分支付`;
       } else desc=`欠款`;
-      rows.push(`<tr><td>销售/分期</td><td>${esc(x.customer||"")}</td><td>${x.id}</td><td>${euro(x.amount||0)}</td><td>${euro(x.paid||0)}</td><td><b>${euro(bal)}</b> (${desc}) <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('sale','${x.id}')">还款登记</button> <button class="btn gray" style="padding:3px 7px" onclick="v31OpenPayment('sale','${x.id}')">付款历史</button></td></tr>`);
+      rows.push(`<tr><td>销售/分期</td><td>${esc(x.customer||"")}</td><td>${esc(x.id)}</td><td>${euro(x.amount||0)}</td><td>${euro(x.paid||0)}</td><td><b>${euro(bal)}</b> (${desc}) <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('sale','${esc(x.id)}')">还款登记</button> <button class="btn gray" style="padding:3px 7px" onclick="v31OpenPayment('sale','${esc(x.id)}')">付款历史</button></td></tr>`);
     }
   });
   db.services.forEach(x=>{
     const bal=balance(x);
-    if(bal>0) rows.push(`<tr><td>维修</td><td>${esc(x.customer||"")}</td><td>${x.id}</td><td>${euro(x.total||0)}</td><td>${euro(x.paid||0)}</td><td>${euro(bal)} <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('service','${x.id}')">收款</button></td></tr>`);
+    if(bal>0) rows.push(`<tr><td>维修</td><td>${esc(x.customer||"")}</td><td>${esc(x.id)}</td><td>${euro(x.total||0)}</td><td>${euro(x.paid||0)}</td><td>${euro(bal)} <button class="btn green" style="padding:3px 7px" onclick="v31OpenPayment('service','${esc(x.id)}')">收款</button></td></tr>`);
   });
   tb.innerHTML=rows.join("")||`<tr><td colspan="6" class="empty">暂无欠款或分期</td></tr>`;
 }
@@ -1797,7 +1897,6 @@ function v31OpenPayment(kind,id){
  document.getElementById("v31PayAmount").focus();
 }
 
-
 /* ===== V6.3 production features ===== */
 let v6RealtimeChannel=null;
 let v6LocalPending=false;
@@ -1817,7 +1916,10 @@ async function v6StartRealtime(){
   v6RealtimeChannel.subscribe(status=>{if(status==="SUBSCRIBED")v6SetSync("实时同步 / Realtime",true);});
 }
 async function v6HandleRealtime(table,payload){
-  if(v6LocalPending){v6SetSync("⚠️ 有本机修改待同步",false);return;}
+  if(v6LocalPending){
+    scheduleCloudSync();
+    return;
+  }
   try{
     const cloud=await readAllCloudData(); applyCloudData(cloud); localStorage.setItem(KEY,JSON.stringify(db)); renderAll(); v6SetSync("实时同步 / Realtime",true);
   }catch(e){v6SetSync("实时刷新失败",false);console.warn(e);}
@@ -1825,10 +1927,14 @@ async function v6HandleRealtime(table,payload){
 function v6RefreshAnalytics(){
   const revenue=(db.sales||[]).reduce((a,x)=>a+Number(x.amount||0),0)+(db.services||[]).reduce((a,x)=>a+Number(x.total||0),0)+(db.rents||[]).filter(x=>x.status==="returned"||x.status==="done").reduce((a,x)=>a+Number(x.rent||0),0);
   const productCost=(db.sales||[]).reduce((a,x)=>{const st=(db.stock||[]).find(s=>String(s.id)===String(x.stockId));return a+(Number(st?.cost||0)*Number(x.qty||0));},0);
-  const serviceCost=(db.services||[]).reduce((a,x)=>a+(Array.isArray(x.partsItems)?x.partsItems.reduce((z,p)=>z+Number(p.cost||0)*Number(p.qty||1),0):0),0);
-  const expenses=(db.expenses||[]).reduce((a,x)=>a+Number(x.amount||0),0);
+  const serviceCost=(db.services||[]).reduce((a,x)=>
+    a+(Array.isArray(x.partsItems)?x.partsItems.reduce((z,p)=>{
+      let cost = p.cost != null ? Number(p.cost) : (db.stock.find(s=>String(s.id)===String(p.stockId))?.cost || 0);
+      return z+(cost*Number(p.qty||1));
+    },0):0),0);
+  const operatingExpenses = (db.expenses||[]).filter(e => e.category !== "采购进货").reduce((a,x)=>a+Number(x.amount||0),0);
   const gross=revenue-productCost-serviceCost;
-  const net=gross-expenses;
+  const net=gross-operatingExpenses;
   const set=(id,val)=>{const e=document.getElementById(id);if(e)e.textContent=money(val)+" RSD"};
   set("v6Cost",productCost+serviceCost);set("v6Gross",gross);set("v6Net",net);
   const low=document.getElementById("v6Low");if(low)low.textContent=(db.stock||[]).filter(x=>Number(x.qty||0)<=Number(x.min||0)).length;
