@@ -54,7 +54,6 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 .auth-card input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d0d5dd;border-radius:9px;margin:6px 0 10px;font-size:15px}
 .auth-card button{width:100%;margin-top:8px}
 .auth-error{display:none;color:#b42318;background:#fef3f2;border:1px solid #fecdca;padding:9px;border-radius:8px;font-size:13px;margin-top:10px;white-space:pre-wrap}
-.auth-hint{font-size:12px;color:#667085;margin-top:12px}
 .v6-syncbar{position:fixed;right:16px;bottom:16px;z-index:30;background:#fff;border:1px solid #d9e0e5;border-radius:10px;padding:9px 12px;box-shadow:0 8px 30px rgba(0,0,0,.12);font-size:12px}
 .v6-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#999;margin-right:6px}.v6-panel{box-shadow:0 2px 8px rgba(23,59,87,.05)}
 .assoc-wrap{position:relative;width:100%}.assoc-wrap input{width:100%}
@@ -98,7 +97,6 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 </header>
 
 <div class="layout">
-<!-- 聚合优化后的左侧菜单导航 -->
 <aside><nav>
 <button class="active" onclick="page('home',this)">🏠 <span class="navtext" data-i18n="home">首页 / Početna</span></button>
 
@@ -299,7 +297,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
 </div>
 </section>
 
-<!-- 视觉升级后的支出模块 -->
+<!-- 改造后的支出模块 -->
 <section id="expenses" class="page">
 <h1 data-i18n="expensesTitle">支出明细 / Troškovi</h1>
 <div class="cards" style="margin-bottom:14px;grid-template-columns:repeat(3,1fr)">
@@ -386,6 +384,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
   <h3 data-i18n="backupTitle">本地数据备份管理</h3>
   <div class="actions">
     <button class="btn" onclick="exportData()" data-i18n="export">导出备份 JSON</button>
+    <button class="btn orange" onclick="forceReloadFromCloud()">🔄 强制清除缓存并拉取云端 / Osveži iz baze</button>
     <button class="btn gray admin-only" onclick="document.getElementById('importFile').click()" data-i18n="import">导入备份 JSON</button>
     <button class="btn red admin-only" onclick="clearAll()" data-i18n="clear">清空全部数据</button>
     <input id="importFile" type="file" accept=".json" class="hidden" onchange="importData(event)">
@@ -513,13 +512,17 @@ function setSupabaseStatus(message, ok=null){
   el.textContent="云端状态："+message; el.style.color = ok===true ? "#16834a" : ok===false ? "#b42318" : "#666";
 }
 
+// 严谨适配原有数据库结构，绝不发送不存在的列
 const CLOUD_MAP = {
   sales: { toRow:x=>({id:x.id,date:x.date,customer:x.customer,item:x.item,stock_id:x.stockId,qty:x.qty,vin:x.vin,amount:x.amount,pay:x.pay,paid:x.paid,installments_count:x.installmentsCount,installment_amount:x.installmentAmount}), fromRow:x=>({...x,stockId:x.stock_id,installmentsCount:x.installments_count,installmentAmount:x.installment_amount}) },
   services: { toRow:x=>({id:x.id,date:x.date,customer:x.customer,phone:x.phone,model:x.model,vin:x.vin,parts:x.parts,parts_items:x.partsItems||[],labor:x.labor,total:x.total,fault:x.fault,status:x.status,paid:x.paid}), fromRow:x=>({...x,partsItems:x.parts_items||[]}) },
   stock: { toRow:x=>({id:x.id,code:x.code,name:x.name,qty:x.qty,min:x.min,cost:x.cost,sell:x.sell}), fromRow:x=>({...x}) },
   customers: { toRow:x=>({id:x.id,name:x.name,phone:x.phone,vehicle:x.vehicle}), fromRow:x=>({...x}) },
   vehicles: { toRow:x=>({id:x.id,model:x.model,vin:x.vin,battery:x.battery,motor:x.motor,cost:x.cost,sell:x.sell,status:x.status}), fromRow:x=>({...x}) },
-  rents: { toRow:x=>({id:x.id,vehicle:x.vehicle,customer:x.customer,start:x.start,end:x.end,rent:x.rent,deposit:x.deposit,status:x.status,is_battery_swap:x.isBatterySwap}), fromRow:x=>({...x,isBatterySwap:x.is_battery_swap}) },
+  rents: {
+    toRow:x=>({id:x.id,vehicle:x.vehicle,customer:x.customer,start:x.start,end:x.end,rent:x.rent,deposit:x.deposit,status:x.status}),
+    fromRow:x=>({...x,isBatterySwap:String(x.vehicle||"").startsWith("[换电]")})
+  },
   expenses: { toRow:x=>({id:x.id,date:x.date,category:x.category,description:x.description,amount:x.amount,pay:x.pay}), fromRow:x=>({...x}) },
   stockMoves: { toRow:x=>({id:x.id,date:x.date,stock_id:x.stockId,code:x.code,name:x.name,qty:x.qty,type:x.type,ref:x.ref,unit_cost:x.unitCost,before_qty:x.beforeQty,after_qty:x.afterQty}), fromRow:x=>({...x,stockId:x.stock_id,unitCost:x.unit_cost,beforeQty:x.before_qty,afterQty:x.after_qty}) },
   payments: { toRow:x=>({id:x.id,date:x.date,kind:x.kind,ref_id:x.refId,amount:x.amount,method:x.method,note:x.note}), fromRow:x=>({...x,refId:x.ref_id}) }
@@ -1256,30 +1259,56 @@ function openBatterySwap() {
     <div><label>支付状态</label><select id="bsStatus"><option value="returned">现场已付现金 / Plaćeno</option><option value="using">挂账/未付 / Duguje</option></select></div>
   </div><div class="actions" style="margin-top:16px;"><button class="btn green" id="bsSubmitBtn" onclick="saveBatterySwap()">⚡ 确认换电并入账</button><button class="btn gray" onclick="closeModal()">${t("cancel")}</button></div>`);
 }
+
+// 换电入账：完全兼容原有数据库格式，不修改 Supabase 表结构
 function saveBatterySwap() {
-  if(isSubmitting) return;
+  if (isSubmitting) return;
   const btn = document.getElementById("bsSubmitBtn"), customer = v("bsCustomer").trim(), phone = v("bsPhone").trim();
-  const date = v("bsDate") || today(), fee = +v("bsFee") || 0, status = v("bsStatus"), battery = v("bsBattery").trim() || "换电电池";
+  const date = v("bsDate") || today(), fee = +v("bsFee") || 0, status = v("bsStatus") || "returned", battery = v("bsBattery").trim() || "48V 换电";
   if (!customer) return alert("请填写骑手姓名！");
+
   isSubmitting = true;
   btn.disabled = true; btn.innerText = "正在入账...";
-  const swapRecord = { id: uid("BS"), isBatterySwap: true, vehicle: `[换电] ${battery}`, customer: customer, start: date + " " + new Date().toTimeString().slice(0, 5), end: date, rent: fee, deposit: 0, status: status };
-  db.rents = db.rents || []; db.rents.unshift(swapRecord);
-  ensureCustomer(customer, battery, phone); closeModal(); save();
+
+  const nowTime = new Date().toTimeString().slice(0, 8);
+  const timeStr = `${date}T${nowTime}`;
+
+  const swapRecord = {
+    id: uid("BS"),
+    vehicle: `[换电] ${battery}`,
+    customer: customer,
+    start: timeStr,
+    end: timeStr,
+    rent: fee,
+    deposit: 0,
+    status: status
+  };
+
+  db.rents = db.rents || [];
+  db.rents.unshift(swapRecord);
+
+  ensureCustomer(customer, battery, phone);
+  closeModal();
+  save(); // 同步到云端
+
   isSubmitting = false;
-  alert("换电记录成功！");
+  alert("⚡ 换电记录成功！");
 }
+
 function finishRent(id){
   let x=(db.rents||[]).find(a=>a.id===id);
   if(x){
     x.status="returned";
-    if(!x.isBatterySwap) { let vh = (db.vehicles||[]).find(v => v.model === x.vehicle && v.status === "出租"); if(vh) vh.status = "库存"; }
+    if(!String(x.vehicle||"").startsWith("[换电]")) {
+      let vh = (db.vehicles||[]).find(v => v.model === x.vehicle && v.status === "出租");
+      if(vh) vh.status = "库存";
+    }
     save();
   }
 }
 
 function renderRents(){
-  let activeRents = (db.rents||[]).filter(x => x.status !== "returned" && !x.isBatterySwap);
+  let activeRents = (db.rents||[]).filter(x => x.status !== "returned" && !String(x.vehicle||"").startsWith("[换电]"));
   let activeDepositSum = activeRents.reduce((a, b) => a + Number(b.deposit || 0), 0);
   if(document.getElementById("rentActiveDepositText")) document.getElementById("rentActiveDepositText").textContent = euro(activeDepositSum);
   if(document.getElementById("rentActiveCountText")) document.getElementById("rentActiveCountText").textContent = `在租整车: ${activeRents.length} 台`;
@@ -1288,7 +1317,7 @@ function renderRents(){
     let actionHtml = isAdmin() ? 
       `${x.status !== "returned" ? `<button class="btn green" onclick="finishRent('${x.id}')">结清/归还</button>` : ""}<button class="btn red" onclick="del('rents','${x.id}')">${t("delete")}</button>` : 
       `${x.status !== "returned" ? `<button class="btn green" onclick="finishRent('${x.id}')">结清/归还</button>` : `<span class="small" style="color:#999">完成</span>`}`;
-    let isSwap = x.isBatterySwap || String(x.vehicle).startsWith("[换电]");
+    let isSwap = String(x.vehicle||"").startsWith("[换电]");
     let typeTag = isSwap ? `<span class="badge" style="background:#e0f2fe;color:#0369a1">⚡ 换电</span>` : `<span class="badge" style="background:#f1f5f9;color:#334155">🚲 整车</span>`;
     let statusText = x.status === "returned" ? `<span class="badge ok">已付款</span>` : `<span class="badge warn">待结清</span>`;
     return `<tr><td>${typeTag}</td><td><b>${esc(x.vehicle)}</b></td><td>${esc(x.customer)}</td><td>${esc(x.start)}</td><td>${esc(x.end || "-")}</td><td><b>${euro(x.rent)}</b></td><td>${euro(x.deposit)}</td><td>${statusText}</td><td class="actions">${actionHtml}</td></tr>`;
@@ -1345,7 +1374,6 @@ function renderExpenses(){
  const list=(db.expenses||[]).filter(x=>(`${x.category||""}${x.description||""}${x.pay||""}`).toLowerCase().includes(q));
  list.sort((a,b) => (b.date||"").localeCompare(a.date||""));
 
- // 动态统计卡片
  const thisMonthExp = (db.expenses||[]).filter(x=>String(x.date||"").startsWith(curMonth)).reduce((a,b)=>a+Number(b.amount||0),0);
  const stockExp = (db.expenses||[]).filter(x=>String(x.date||"").startsWith(curMonth) && x.category === "采购进货").reduce((a,b)=>a+Number(b.amount||0),0);
  const operExp = thisMonthExp - stockExp;
@@ -1502,12 +1530,40 @@ async function clearAll(){
   }
 }
 
+// 强制清除本地缓存，100% 重新对齐云端
+async function forceReloadFromCloud(){
+  if (!supabaseClient) return alert("云端尚未连接！");
+  if (!confirm("确定要强制清除本机缓存并拉取云端数据吗？")) return;
+  setSupabaseStatus("正在强制同步云端…");
+  v6SetSync("正在刷新…", null);
+  try {
+    localStorage.removeItem("FULUDA_V61_CLOUD_BASELINE");
+    localStorage.removeItem("FULUDA_V6_OFFLINE_QUEUE");
+    const cloudData = await readAllCloudData();
+    for (const name of Object.keys(CLOUD_MAP)) {
+      const rows = cloudData[name] || [];
+      db[name] = rows.map(CLOUD_MAP[name].fromRow);
+    }
+    localStorage.setItem(KEY, JSON.stringify(db));
+    setCloudBaseline(cloudData);
+    renderAll();
+    setSupabaseStatus("已完整对齐云端最新状态", true);
+    v6SetSync("实时同步 / Realtime", true);
+    alert("✅ 缓存已清除，数据已与云端完全同步！");
+  } catch (e) {
+    console.error("强制拉取失败", e);
+    setSupabaseStatus("拉取失败：" + (e.message || e), false);
+    v6SetSync("同步失败", false);
+    alert("拉取失败：" + (e.message || e));
+  }
+}
+
 function v31RefreshCorePanel(){
   const todayISO = today();
   const salesToday = (db.sales||[]).filter(x=>String(x.date||"").slice(0,10)===todayISO).reduce((a,x)=>a+Number(x.paid||0),0);
   const serviceToday = (db.services||[]).filter(x=>String(x.date||"").slice(0,10)===todayISO).reduce((a,x)=>a+Number(x.paid||0),0);
   const debt = (db.sales||[]).reduce((a,x)=>a+Math.max(0,Number(x.amount||0)-Number(x.paid||0)),0) + (db.services||[]).reduce((a,x)=>a+Math.max(0,Number(x.total||0)-Number(x.paid||0)),0);
-  const activeDeposit = (db.rents||[]).filter(x => x.status !== "returned" && !x.isBatterySwap).reduce((a, x) => a + Number(x.deposit || 0), 0);
+  const activeDeposit = (db.rents||[]).filter(x => x.status !== "returned" && !String(x.vehicle||"").startsWith("[换电]")).reduce((a, x) => a + Number(x.deposit || 0), 0);
 
   document.getElementById("v31TodayPaid").textContent=money(salesToday+serviceToday)+" RSD";
   document.getElementById("v31TodayService").textContent=money(serviceToday)+" RSD";
