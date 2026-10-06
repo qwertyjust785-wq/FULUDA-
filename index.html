@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FULUDA 店铺管理系统 V6.3 云端版</title>
+<title>FULUDA 店铺管理系统 V7.0 云端版</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Arial,"Microsoft YaHei",sans-serif;background:#f3f5f7;color:#1f2937}
@@ -512,7 +512,6 @@ function setSupabaseStatus(message, ok=null){
   el.textContent="云端状态："+message; el.style.color = ok===true ? "#16834a" : ok===false ? "#b42318" : "#666";
 }
 
-// 严谨适配原有数据库结构，绝不发送不存在的列
 const CLOUD_MAP = {
   sales: { toRow:x=>({id:x.id,date:x.date,customer:x.customer,item:x.item,stock_id:x.stockId,qty:x.qty,vin:x.vin,amount:x.amount,pay:x.pay,paid:x.paid,installments_count:x.installmentsCount,installment_amount:x.installmentAmount}), fromRow:x=>({...x,stockId:x.stock_id,installmentsCount:x.installments_count,installmentAmount:x.installment_amount}) },
   services: { toRow:x=>({id:x.id,date:x.date,customer:x.customer,phone:x.phone,model:x.model,vin:x.vin,parts:x.parts,parts_items:x.partsItems||[],labor:x.labor,total:x.total,fault:x.fault,status:x.status,paid:x.paid}), fromRow:x=>({...x,partsItems:x.parts_items||[]}) },
@@ -715,24 +714,47 @@ function restoreSaleStock(sale,ref){
   if(item)addStockMove(item,Number(sale.qty||1),"return",ref||"销售单回滚");
 }
 
-async function del(type,id){
+/* 核心修复：删除记录时，同时向 Supabase 发送真正的 DELETE 指令，彻底杜绝数据复活 */
+async function del(type, id) {
   if (!isAdmin()) return alert("普通员工无权删除记录！");
-  if(confirm(t("confirmDelete"))){
-    if (type === 'sales') {
-      let sale = (db.sales||[]).find(x => x.id === id);
-      if (sale && sale.stockId) {
-        let st = (db.stock||[]).find(s => s.id === sale.stockId);
-        if (st) addStockMove(st,sale.qty||1,"return","删除恢复");
-      }
-      if (sale && sale.vin) {
-        let vh = (db.vehicles||[]).find(v => v.vin === sale.vin);
-        if (vh && vh.status === "已售") vh.status = "库存";
-      }
+  if (!confirm(t("confirmDelete"))) return;
+
+  if (type === 'sales') {
+    let sale = (db.sales || []).find(x => x.id === id);
+    if (sale && sale.stockId) {
+      let st = (db.stock || []).find(s => s.id === sale.stockId);
+      if (st) addStockMove(st, sale.qty || 1, "return", "删除销售单恢复库存");
     }
-    db[type]=(db[type]||[]).filter(x=>x.id!==id);
-    save();
+    if (sale && sale.vin) {
+      let vh = (db.vehicles || []).find(v => v.vin === sale.vin);
+      if (vh && vh.status === "已售") vh.status = "库存";
+    }
   }
+
+  // 本地删除
+  db[type] = (db[type] || []).filter(x => x.id !== id);
+  localStorage.setItem(KEY, JSON.stringify(db));
+  renderAll();
+
+  // 云端同步真实删除
+  if (supabaseClient) {
+    setSupabaseStatus("正在从云端彻底删除…");
+    const tableName = type === "stockMoves" ? "stock_moves" : type;
+    try {
+      const { error } = await supabaseClient.from(tableName).delete().eq("id", id);
+      if (error) {
+        console.error("云端删除失败：", error);
+        alert("本地已删除，但云端数据库删除失败，请检查网络权限：\n" + error.message);
+      } else {
+        setSupabaseStatus("云端记录已彻底删除", true);
+      }
+    } catch (e) {
+      console.error("云端删除异常：", e);
+    }
+  }
+  scheduleCloudSync();
 }
+
 function option(vv,label,selected){return `<option value="${esc(vv)}" ${selected===vv?"selected":""}>${esc(label)}</option>`}
 
 const PAGE_SIZE = 20;
@@ -1260,7 +1282,6 @@ function openBatterySwap() {
   </div><div class="actions" style="margin-top:16px;"><button class="btn green" id="bsSubmitBtn" onclick="saveBatterySwap()">⚡ 确认换电并入账</button><button class="btn gray" onclick="closeModal()">${t("cancel")}</button></div>`);
 }
 
-// 换电入账：完全兼容原有数据库格式，不修改 Supabase 表结构
 function saveBatterySwap() {
   if (isSubmitting) return;
   const btn = document.getElementById("bsSubmitBtn"), customer = v("bsCustomer").trim(), phone = v("bsPhone").trim();
@@ -1289,7 +1310,7 @@ function saveBatterySwap() {
 
   ensureCustomer(customer, battery, phone);
   closeModal();
-  save(); // 同步到云端
+  save();
 
   isSubmitting = false;
   alert("⚡ 换电记录成功！");
@@ -1324,7 +1345,6 @@ function renderRents(){
   }).join("") || `<tr><td colspan="9" class="empty">${t("noData")}</td></tr>`;
 }
 
-/* 改造后的支出模块逻辑与美化渲染 */
 function openExpense(id=null){
  if(id&&!isAdmin())return alert("普通员工不能修改现有记录！");
  const x=id?(db.expenses||[]).find(a=>a.id===id):null;
@@ -1530,7 +1550,6 @@ async function clearAll(){
   }
 }
 
-// 强制清除本地缓存，100% 重新对齐云端
 async function forceReloadFromCloud(){
   if (!supabaseClient) return alert("云端尚未连接！");
   if (!confirm("确定要强制清除本机缓存并拉取云端数据吗？")) return;
