@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>FULUDA 店铺管理系统 V7.0 云端版</title>
+<title>FULUDA 店铺管理系统 V6.3 云端稳定版</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Arial,"Microsoft YaHei",sans-serif;background:#f3f5f7;color:#1f2937}
@@ -530,12 +530,20 @@ const CLOUD_MAP = {
 function cloudHasLocalData(){ return Object.values(db).some(v=>Array.isArray(v) && v.length>0); }
 function setCloudBaseline(dataObj){try{localStorage.setItem("FULUDA_V61_CLOUD_BASELINE",JSON.stringify(dataObj||{}));}catch(e){}}
 
+/* 核心防重复：严格去重并加锁写入云端 */
 async function syncTableToCloud(name){
   if(!supabaseClient)return {changed:0};
   const mapper=CLOUD_MAP[name]; if(!mapper)return {changed:0};
   const table=name==="stockMoves"?"stock_moves":name;
-  const localRows=(db[name]||[]).map(mapper.toRow);
+  
+  // 去重处理：以 id 为唯一标识，过滤掉本地数组中可能存在的重复项
+  const uniqueMap = new Map();
+  (db[name]||[]).forEach(item => { if(item && item.id) uniqueMap.set(item.id, item); });
+  db[name] = Array.from(uniqueMap.values());
+
+  const localRows=db[name].map(mapper.toRow);
   if(!localRows.length) return {changed:0};
+
   for(const row of localRows){
     await supabaseClient.from(table).upsert(row,{onConflict:"id"});
   }
@@ -578,7 +586,9 @@ function applyCloudData(dataObj){
   for(const name of Object.keys(CLOUD_MAP)){
     const rows = dataObj[name] || [];
     if (rows.length > 0) {
-      db[name] = rows.map(CLOUD_MAP[name].fromRow);
+      const map = new Map();
+      rows.map(CLOUD_MAP[name].fromRow).forEach(item => { if(item && item.id) map.set(item.id, item); });
+      db[name] = Array.from(map.values());
     } else if (!db[name]) {
       db[name] = [];
     }
@@ -619,7 +629,7 @@ function scheduleCloudSync(){
   setSupabaseStatus("正在准备保存到云端…");
   cloudSyncTimer=setTimeout(async()=>{
     try{ await syncAllToCloud(); }catch(e){ console.error("Supabase 同步失败",e); }
-  },500);
+  },400);
 }
 
 async function saveSupabaseConfig() {
@@ -677,7 +687,7 @@ function esc(s){return String(s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&l
 function euro(n){return new Intl.NumberFormat("sr-RS",{style:"currency",currency:"RSD",minimumFractionDigits:2}).format(Number(n||0))}
 function money(n){ return (Number(n)||0).toFixed(2); }
 function today(){return new Date().toISOString().slice(0,10)}
-function uid(prefix="ID"){return prefix+"_"+Date.now()+Math.floor(Math.random()*1000)}
+function uid(prefix="ID"){return prefix+"_"+Date.now()+"_"+Math.floor(Math.random()*10000)}
 function page(id,el){document.querySelectorAll(".page").forEach(x=>x.classList.remove("active"));document.getElementById(id).classList.add("active");document.querySelectorAll("nav button").forEach(x=>x.classList.remove("active"));el.classList.add("active");renderAll()}
 function closeModal(){document.getElementById("modal").classList.add("hidden")}
 function openModal(content){document.getElementById("modalContent").innerHTML=content;document.getElementById("modal").classList.remove("hidden")}
@@ -714,7 +724,6 @@ function restoreSaleStock(sale,ref){
   if(item)addStockMove(item,Number(sale.qty||1),"return",ref||"销售单回滚");
 }
 
-/* 核心修复：删除记录时，同时向 Supabase 发送真正的 DELETE 指令，彻底杜绝数据复活 */
 async function del(type, id) {
   if (!isAdmin()) return alert("普通员工无权删除记录！");
   if (!confirm(t("confirmDelete"))) return;
@@ -731,12 +740,10 @@ async function del(type, id) {
     }
   }
 
-  // 本地删除
   db[type] = (db[type] || []).filter(x => x.id !== id);
   localStorage.setItem(KEY, JSON.stringify(db));
   renderAll();
 
-  // 云端同步真实删除
   if (supabaseClient) {
     setSupabaseStatus("正在从云端彻底删除…");
     const tableName = type === "stockMoves" ? "stock_moves" : type;
@@ -744,7 +751,7 @@ async function del(type, id) {
       const { error } = await supabaseClient.from(tableName).delete().eq("id", id);
       if (error) {
         console.error("云端删除失败：", error);
-        alert("本地已删除，但云端数据库删除失败，请检查网络权限：\n" + error.message);
+        alert("本地已删除，但云端数据库删除失败：\n" + error.message);
       } else {
         setSupabaseStatus("云端记录已彻底删除", true);
       }
@@ -987,7 +994,7 @@ function saveSale(id){
 
  ensureCustomer(obj.customer, obj.vin || obj.item);
  closeModal(); save();
- isSubmitting = false;
+ setTimeout(() => { isSubmitting = false; }, 600);
 }
 
 function changeSalePage(newPage) { salePage = newPage; renderSales(); }
@@ -1064,8 +1071,7 @@ function submitTradeIn() {
     }
   }
   ensureCustomer(cust, vin || st.name, phone); save();
-  isSubmitting = false;
-  if(btn){ btn.disabled = false; btn.innerText = "提交以旧换新单 (自动扣新车/回收旧车)"; }
+  setTimeout(() => { isSubmitting = false; if(btn){ btn.disabled = false; btn.innerText = "提交以旧换新单 (自动扣新车/回收旧车)"; } }, 600);
   alert("以旧换新单提交成功！");
   page('sales', document.querySelectorAll("nav button")[1]);
 }
@@ -1146,7 +1152,7 @@ function saveService(id){
  let obj={id:id||uid("SV"),date:v("sdate"),customer:c,phone:v("sphone"),model:v("smodel"),vin:v("svin"),parts:+v("sparts"),partsItems:serviceDraftParts.map(p=>({...p})),labor:+v("slabor"),total:tot,fault:v("sfault"),status:v("sstatus"),paid:inputPaid};
  if(id)db.services=db.services.map(x=>x.id===id?obj:x);else db.services.push(obj);
  ensureCustomer(c,v("smodel"),v("sphone")); closeModal(); save();
- isSubmitting = false;
+ setTimeout(() => { isSubmitting = false; }, 600);
 }
 
 function changeServicePage(newPage) { servicePage = newPage; renderServices(); }
@@ -1268,7 +1274,7 @@ function saveRent(id){
   if(!id) { let vh = (db.vehicles||[]).find(v => v.model === rentVehicleModel && v.status === "库存"); if(vh) vh.status = "出租"; }
   if(id)db.rents=db.rents.map(x=>x.id===id?obj:x);else db.rents.push(obj);
   ensureCustomer(obj.customer,obj.vehicle); closeModal(); save();
-  isSubmitting = false;
+  setTimeout(() => { isSubmitting = false; }, 600);
 }
 
 function openBatterySwap() {
@@ -1289,7 +1295,7 @@ function saveBatterySwap() {
   if (!customer) return alert("请填写骑手姓名！");
 
   isSubmitting = true;
-  btn.disabled = true; btn.innerText = "正在入账...";
+  if(btn){ btn.disabled = true; btn.innerText = "正在入账..."; }
 
   const nowTime = new Date().toTimeString().slice(0, 8);
   const timeStr = `${date}T${nowTime}`;
@@ -1312,7 +1318,7 @@ function saveBatterySwap() {
   closeModal();
   save();
 
-  isSubmitting = false;
+  setTimeout(() => { isSubmitting = false; }, 600);
   alert("⚡ 换电记录成功！");
 }
 
@@ -1374,7 +1380,7 @@ function saveExpense(id){
  const obj={id:id||uid("EX"),date:v("edate"),category:v("ecategory"),description:v("edescription"),amount,pay:v("epay")};
  if(id)db.expenses=db.expenses.map(x=>x.id===id?obj:x);else db.expenses.push(obj);
  closeModal();save();
- isSubmitting = false;
+ setTimeout(() => { isSubmitting = false; }, 600);
 }
 
 function getExpenseBadge(category) {
@@ -1559,13 +1565,7 @@ async function forceReloadFromCloud(){
     localStorage.removeItem("FULUDA_V61_CLOUD_BASELINE");
     localStorage.removeItem("FULUDA_V6_OFFLINE_QUEUE");
     const cloudData = await readAllCloudData();
-    for (const name of Object.keys(CLOUD_MAP)) {
-      const rows = cloudData[name] || [];
-      db[name] = rows.map(CLOUD_MAP[name].fromRow);
-    }
-    localStorage.setItem(KEY, JSON.stringify(db));
-    setCloudBaseline(cloudData);
-    renderAll();
+    applyCloudData(cloudData);
     setSupabaseStatus("已完整对齐云端最新状态", true);
     v6SetSync("实时同步 / Realtime", true);
     alert("✅ 缓存已清除，数据已与云端完全同步！");
