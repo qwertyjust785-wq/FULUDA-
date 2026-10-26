@@ -190,7 +190,7 @@ table{width:100%;border-collapse:collapse}th,td{padding:9px 7px;border-bottom:1p
     <div class="full">
       <label>选购库存新车 / Vozilo iz zaliha</label>
       <div class="assoc-wrap" id="tradeStockSearch_wrap">
-        <input id="tradeStockSearch" autocomplete="off" placeholder="输入车型搜索库存">
+        <input id="tradeStockSearch" autocomplete="off" placeholder="输入车型或编号搜索库存">
         <div id="tradeStockSearch_menu" class="assoc-menu"></div>
       </div>
       <div id="tradeStockSearch_selected" class="assoc-selected"></div>
@@ -530,22 +530,23 @@ const CLOUD_MAP = {
 function cloudHasLocalData(){ return Object.values(db).some(v=>Array.isArray(v) && v.length>0); }
 function setCloudBaseline(dataObj){try{localStorage.setItem("FULUDA_V61_CLOUD_BASELINE",JSON.stringify(dataObj||{}));}catch(e){}}
 
-/* 核心防重复：严格去重并加锁写入云端 */
+/* 核心优化：去重与成批写入，杜绝单条死循环卡死与基线冲突静默丢失 */
 async function syncTableToCloud(name){
   if(!supabaseClient)return {changed:0};
   const mapper=CLOUD_MAP[name]; if(!mapper)return {changed:0};
   const table=name==="stockMoves"?"stock_moves":name;
   
-  // 去重处理：以 id 为唯一标识，过滤掉本地数组中可能存在的重复项
   const uniqueMap = new Map();
-  (db[name]||[]).forEach(item => { if(item && item.id) uniqueMap.set(item.id, item); });
+  (db[name]||[]).forEach(item => { if(item && item.id) uniqueMap.set(String(item.id), item); });
   db[name] = Array.from(uniqueMap.values());
 
   const localRows=db[name].map(mapper.toRow);
   if(!localRows.length) return {changed:0};
 
-  for(const row of localRows){
-    await supabaseClient.from(table).upsert(row,{onConflict:"id"});
+  for(let i=0; i<localRows.length; i+=50){
+    const chunk = localRows.slice(i, i+50);
+    const {error:e} = await supabaseClient.from(table).upsert(chunk, {onConflict:"id"});
+    if(e) throw e;
   }
   return {changed:localRows.length};
 }
@@ -564,7 +565,11 @@ async function syncAllToCloud(){
     v6LocalPending=false; v6OfflineQueue=[]; v6QueueLocal();
     if(currentUser)v6StartRealtime();
     return true;
-  }catch(e){setSupabaseStatus("云端同步失败："+(e.message||e),false);throw e;}
+  }catch(e){
+    console.error("云端同步失败:", e);
+    setSupabaseStatus("云端同步失败："+(e.message||e),false);
+    throw e;
+  }
   finally{cloudSyncInProgress=false;if(cloudSyncPending)scheduleCloudSync();}
 }
 
@@ -587,7 +592,7 @@ function applyCloudData(dataObj){
     const rows = dataObj[name] || [];
     if (rows.length > 0) {
       const map = new Map();
-      rows.map(CLOUD_MAP[name].fromRow).forEach(item => { if(item && item.id) map.set(item.id, item); });
+      rows.map(CLOUD_MAP[name].fromRow).forEach(item => { if(item && item.id) map.set(String(item.id), item); });
       db[name] = Array.from(map.values());
     } else if (!db[name]) {
       db[name] = [];
@@ -629,7 +634,7 @@ function scheduleCloudSync(){
   setSupabaseStatus("正在准备保存到云端…");
   cloudSyncTimer=setTimeout(async()=>{
     try{ await syncAllToCloud(); }catch(e){ console.error("Supabase 同步失败",e); }
-  },400);
+  },300);
 }
 
 async function saveSupabaseConfig() {
@@ -665,10 +670,15 @@ async function initSupabase() {
 }
 
 function save(){
-  if(!currentUser){ showAuthOverlay("请先登录后再保存。"); return; }
-  localStorage.setItem(KEY,JSON.stringify(db)); renderAll(); v6LocalPending=true;
-  if(supabaseClient && navigator.onLine){ scheduleCloudSync(); }
-  else { v6QueueAdd("cloud unavailable"); v6SetSync("离线：本地已保存，待联网同步",false); }
+  localStorage.setItem(KEY,JSON.stringify(db)); 
+  renderAll(); 
+  v6LocalPending=true;
+  if(supabaseClient && navigator.onLine){ 
+    scheduleCloudSync(); 
+  } else { 
+    v6QueueAdd("cloud unavailable"); 
+    v6SetSync("离线：本地已保存，待联网同步",false); 
+  }
 }
 
 const T={
@@ -740,7 +750,7 @@ async function del(type, id) {
     }
   }
 
-  db[type] = (db[type] || []).filter(x => x.id !== id);
+  db[type] = (db[type] || []).filter(x => String(x.id) !== String(id));
   localStorage.setItem(KEY, JSON.stringify(db));
   renderAll();
 
@@ -837,8 +847,8 @@ const assocState={};
 function assocNorm(x){return String(x??"").trim().toLowerCase();}
 function assocResults(type,q){
   const n=assocNorm(q);
-  if(type==='stock') return (db.stock||[]).filter(s=>!n||[s.name,s.code].some(v=>assocNorm(v).includes(n))).slice(0,20);
-  if(type==='vehicle') return (db.vehicles||[]).filter(v=>!n||[v.model,v.vin,v.battery,v.motor].some(x=>assocNorm(x).includes(n))).slice(0,20);
+  if(type==='stock') return (db.stock||[]).filter(s=>!n||[s.name,s.code].some(v=>assocNorm(v).includes(n)));
+  if(type==='vehicle') return (db.vehicles||[]).filter(v=>!n||[v.model,v.vin,v.battery,v.motor].some(x=>assocNorm(x).includes(n)));
   return [];
 }
 function assocRender(id){
@@ -846,7 +856,7 @@ function assocRender(id){
   const menu=document.getElementById(id+'_menu'); if(!menu)return;
   const rows=assocResults(st.type,st.input.value);
   if(!rows.length){menu.innerHTML='<div class="assoc-empty">无匹配记录 / Nema rezultata</div>';menu.classList.add('show');return;}
-  menu.innerHTML=rows.map(r=>{
+  menu.innerHTML=rows.slice(0, 30).map(r=>{
     const main=st.type==='stock'?`${r.name} <span style="font-weight:normal">· 库存 ${r.qty}</span>`:`${r.model||'车辆'} ${r.vin?`· ${r.vin}`:''}`;
     const sub=st.type==='stock'?`${r.code||'无编号'} · 售价 ${money(r.sell)} RSD`:`${r.battery||''} · 状态 ${r.status||''}`;
     return `<div class="assoc-item" onclick="assocPick('${id}','${String(r.id).replace(/'/g,"\\'")}')"><div class="assoc-main">${esc(main)}</div><div class="assoc-sub">${esc(sub)}</div></div>`;
@@ -1664,10 +1674,10 @@ async function v6StartRealtime(){
   v6RealtimeChannel.subscribe(status=>{if(status==="SUBSCRIBED")v6SetSync("实时同步 / Realtime",true);});
 }
 async function v6HandleRealtime(table,payload){
-  if(v6LocalPending){ scheduleCloudSync(); return; }
+  if(v6LocalPending || cloudSyncInProgress){ return; }
   try{
     const cloud=await readAllCloudData(); applyCloudData(cloud); localStorage.setItem(KEY,JSON.stringify(db)); renderAll(); v6SetSync("实时同步 / Realtime",true);
-  }catch(e){v6SetSync("实时刷新失败",false);}
+  }catch(e){v6SetSync("实时刷新跳过",false);}
 }
 
 function v6RefreshAnalytics(){
